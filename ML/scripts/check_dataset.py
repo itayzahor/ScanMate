@@ -1,3 +1,6 @@
+# To run this script, use the command line:
+# python ML\scripts\check_dataset.py
+
 #!/usr/bin/env python
 """
 ChessReD data quality test (single-file).
@@ -269,3 +272,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
