@@ -1,0 +1,196 @@
+{
+    "info": {
+        "description": "Chess Recognition Dataset (ChessReD)",
+        "version": "1.0",
+        "year": 2023,
+        "date_created": "26/08/2023",
+        "author": "Athanasios Masouris"
+    },
+    "images": [
+        {
+            "file_name": "G000_IMG000.jpg",
+            "path": "images/0/G000_IMG000.jpg",
+            "camera": "Huawei P40 pro",
+            "height": 3072,
+            "width": 3072,
+            "game_id": 0,
+            "move_id": 0,
+            "id": 0
+        },
+        .
+        .
+        .
+        {
+            "file_name": "G099_IMG099.jpg",
+            "path": "images/99/G099_IMG099.jpg",
+            "camera": "Samsung Galaxy S8",
+            "height": 3024,
+            "width": 3024,
+            "game_id": 99,
+            "move_id": 99,
+            "id": 10799
+        }
+    ],
+    "annotations": {
+        "pieces": [
+            {
+                "image_id": 0,
+                "category_id": 7,
+                "chessboard_position": "a8",
+                "id": 0,
+                "bbox": [
+                    510.34,
+                    963.65,
+                    155.75,
+                    186.14
+                ]
+            },
+            .
+            .
+            .
+            {
+                "image_id": 10799,
+                "category_id": 7,
+                "chessboard_position": "d1",
+                "id": 223803,
+                "bbox": [
+                    581.57,
+                    1188.01,
+                    132.52,
+                    209.77
+                ]
+            }
+        ],
+        "corners": [
+            {
+                "image_id": 0,
+                "corners": {
+                    "bottom_right": [
+                        2610.3,
+                        1560.9
+                    ],
+                    "top_right": [
+                        1772.23,
+                        638.59
+                    ],
+                    "top_left": [
+                        488.7,
+                        1078.7
+                    ],
+                    "bottom_left": [
+                        1063.3,
+                        2304.1
+                    ]
+                },
+                "id": 223804
+            },
+            .
+            .
+            .
+            {
+                "image_id": 10799,
+                "corners": {
+                    "top_right": [
+                        2509.1,
+                        1823.6
+                    ],
+                    "bottom_right": [
+                        594.51,
+                        2092.73
+                    ],
+                    "top_left": [
+                        2005.33,
+                        778.48
+                    ],
+                    "bottom_left": [
+                        515.43,
+                        938.19
+                    ]
+                },
+                "id": 225881
+            }
+        ]
+    },
+    "categories": [
+        {
+            "id": 0,
+            "name": "white-pawn"
+        },
+        {
+            "id": 1,
+            "name": "white-rook"
+        },
+        {
+            "id": 2,
+            "name": "white-knight"
+        },
+        {
+            "id": 3,
+            "name": "white-bishop"
+        },
+        {
+            "id": 4,
+            "name": "white-queen"
+        },
+        {
+            "id": 5,
+            "name": "white-king"
+        },
+        {
+            "id": 6,
+            "name": "black-pawn"
+        },
+        {
+            "id": 7,
+            "name": "black-rook"
+        },
+        {
+            "id": 8,
+            "name": "black-knight"
+        },
+        {
+            "id": 9,
+            "name": "black-bishop"
+        },
+        {
+            "id": 10,
+            "name": "black-queen"
+        },
+        {
+            "id": 11,
+            "name": "black-king"
+        },
+        {
+            "id": 12,
+            "name": "empty"
+        }
+    ],
+    "splits": {
+        "train": {
+            "image_ids": [ . . . ]
+            "n_samples": 6479
+        },
+        "val": {
+            "image_ids": [ . . . ]
+            "n_samples": 2192
+        },
+        "test": {
+            "image_ids": [ . . . ]
+            "n_samples": 2129
+        },
+        "chessred2k": {
+            "train": {
+                "image_ids": [ . . . ]
+                "n_samples": 1442
+            },
+            "val": {
+                "image_ids": [ . . . ]
+                "n_samples": 330
+            },
+            "test": {
+                "image_ids": [ . . . ]
+                "n_samples": 306
+            }
+        }
+    }
+}
