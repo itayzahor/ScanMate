@@ -4,7 +4,6 @@ ML/.venv/
 # raw/generate datasets
 ML/data/
 # training outputs
-ML/runs/
 ML/configs/
 ML/outputs/
 
