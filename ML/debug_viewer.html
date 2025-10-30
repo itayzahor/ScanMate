@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Debug Viewer</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #results { margin-top: 20px; border-top: 2px solid #ccc; padding-top: 20px; }
+        img { max-width: 400px; margin: 10px; border: 1px solid #000; }
+        h3 { margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <h1>Chess Debug Viewer</h1>
+    <input type="file" id="imageInput" accept="image/*">
+    <button id="uploadButton">Recognize Board</button>
+    
+    <div id="results">
+        <h2>Status: <span id="status">Idle</span></h2>
+        <h3>FEN: <code id="fen">...</code></h3>
+        <hr>
+        <div id="imageContainer"></div>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const uploadButton = document.getElementById('uploadButton');
+        const statusEl = document.getElementById('status');
+        const fenEl = document.getElementById('fen');
+        const imageContainer = document.getElementById('imageContainer');
+
+        uploadButton.addEventListener('click', async () => {
+            if (!imageInput.files || imageInput.files.length === 0) {
+                alert('Please select an image file first.');
+                return;
+            }
+
+            const file = imageInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            statusEl.textContent = 'Processing...';
+            fenEl.textContent = '...';
+            imageContainer.innerHTML = '';
+
+            try {
+                const response = await fetch('/recognize_board/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.message || 'Server error');
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    statusEl.textContent = 'Success!';
+                    fenEl.textContent = data.fen;
+                    
+                    // Display all debug images
+                    for (const [key, b64string] of Object.entries(data.debug_images)) {
+                        const title = document.createElement('h4');
+                        title.textContent = key;
+                        
+                        const img = document.createElement('img');
+                        img.src = b64string;
+                        
+                        imageContainer.appendChild(title);
+                        imageContainer.appendChild(img);
+                    }
+                } else {
+                    statusEl.textContent = 'Error';
+                    fenEl.textContent = data.message;
+                }
+
+            } catch (error) {
+                statusEl.textContent = 'Failed';
+                fenEl.textContent = error.message;
+            }
+        });
+    </script>
+</body>
+</html>
