@@ -1,5 +1,5 @@
 # ScanMate
-
+```
 git clone https://github.com/itayzahor/ScanMate.git
 
 cd ScanMate\ML
