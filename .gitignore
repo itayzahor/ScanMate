@@ -6,8 +6,5 @@ ML/data/
 # training outputs
 ML/configs/
 ML/outputs/
+ML/debug_images/
 
-# large weights (both base and trained)
-ML/yolov8n.pt
-ML/yolov8n-pose.pt
-ML/**/*.pt
