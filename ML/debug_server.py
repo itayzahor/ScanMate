@@ -6,15 +6,16 @@ from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 import time
-import os
-import base64  # <-- 1. IMPORT BASE64
-from io import BytesIO
+import base64  
 from fastapi.responses import JSONResponse, HTMLResponse
 
-# These files are all CORRECT from our previous steps
-from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CLASS_NAMES
-from scripts.board_mapper import get_perspective_transform, map_pieces_to_board
+from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CLASS_NAMES, IMAGE_SIZE
+# board_mapper.py (shim during transition)
+from scripts.board_orientation import get_perspective_transform
+from scripts.piece_mapping import map_pieces_to_board
+
 from scripts.fen_converter import convert_board_to_fen
+
 
 app = FastAPI(title="Chess Debug Server")
 
@@ -105,14 +106,11 @@ def generate_all_debug_visuals(img_resized, warped_image, corners, piece_results
         for piece in piece_results:
             box = piece.xyxy[0].cpu().numpy()
             class_id = int(piece.cls[0].cpu())
-            center_x = int((box[0] + box[2]) / 2)
-            center_y = int((box[1] + box[3]) / 2)
 
             if class_id in PIECE_CLASS_NAMES:
                 label = PIECE_CLASS_NAMES[class_id]
                 cv2.rectangle(img_with_grid_and_pieces, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), grid_color_green, 2)
                 cv2.putText(img_with_grid_and_pieces, label, (int(box[0]), int(box[1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, grid_color_green, 2)
-                cv2.circle(img_with_grid_and_pieces, (center_x, center_y), 5, piece_center_color_red, -1)
 
         debug_images["04_combined_pieces_and_grid"] = encode_image_to_base64(img_with_grid_and_pieces)
 
@@ -135,7 +133,7 @@ def run_full_pipeline(image_bytes):
         raise ValueError("Could not decode image.")
 
     # 2. Resize the image ONCE
-    img_resized = cv2.resize(img_original, (1024, 1024))
+    img_resized = cv2.resize(img_original, (IMAGE_SIZE, IMAGE_SIZE))
 
     # 3. Find Board Corners
     corners = get_board_corners(img_resized)
@@ -143,27 +141,27 @@ def run_full_pipeline(image_bytes):
         raise ValueError("Could not find board corners.")
     
     # 4. Get Perspective Transform
-    matrix, output_size = get_perspective_transform(corners)
+    homography = get_perspective_transform(corners, img_resized)
     
     # 5. Get Warped Image (for debug)
-    warped_image = cv2.warpPerspective(img_resized, matrix, (output_size, output_size))
+    warped_image = cv2.warpPerspective(img_resized, homography, (IMAGE_SIZE, IMAGE_SIZE))
     
     # 6. Find All Pieces
-    piece_results = get_piece_predictions(img_resized)
+    piece_boxes = get_piece_predictions(img_resized)
     
     # 7. Map Pieces to Board
     board_state = map_pieces_to_board(
-        piece_results, 
-        PIECE_CLASS_NAMES, 
-        matrix, 
-        output_size
+        piece_boxes,
+        PIECE_CLASS_NAMES,
+        homography, 
     )
+    print(board_state)
     
     # 8. Convert to FEN
     fen_string = convert_board_to_fen(board_state)
     
     # 9. Generate ALL Debug Images
-    debug_visuals = generate_all_debug_visuals(img_resized, warped_image, corners, piece_results, matrix, output_size)
+    debug_visuals = generate_all_debug_visuals(img_resized, warped_image, corners, piece_boxes, homography, IMAGE_SIZE)
     
     return fen_string, board_state, debug_visuals
 

@@ -2,6 +2,7 @@
 
 import cv2
 import numpy as np
+from scripts.detectors import IMAGE_SIZE
 
 # In ML/scripts/board_mapper.py
 
@@ -36,18 +37,15 @@ def convex_hull_order4(pts_xy):
     tl_idx = np.argmin(poly.sum(axis=1))
     poly = np.roll(poly, -tl_idx, axis=0) # Now starts with TL, list is [TL, BL, BR, TR]
 
-    # --- THIS IS THE *ACTUAL* FINAL FIX ---
-    # Construct the final array in [TL, TR, BR, BL] order.
-    # We take elements from the CCW 'poly' array: poly[0]=TL, poly[1]=BL, poly[2]=BR, poly[3]=TR
-    # So the correct order is poly[0], poly[3], poly[2], poly[1]
+    
     src_pts = np.array([poly[0], poly[3], poly[2], poly[1]], dtype=np.float32)
-    # --- END ACTUAL FINAL FIX ---
+
 
     return src_pts
 
 # (The rest of board_mapper.py remains unchanged)
 
-def get_perspective_transform(corners, output_size=800):
+def get_perspective_transform(corners, output_size=640):
     """
     Takes 4 corner points (in any order) and returns a
     transformation matrix and the output size using the robust angle sort.
@@ -77,13 +75,13 @@ def get_perspective_transform(corners, output_size=800):
         print(f"ERROR: cv2.getPerspectiveTransform CRASHED: {e}")
         raise
         
-    return matrix, output_size
+    return matrix
 
 # In ML/scripts/board_mapper.py
 
 # ... (keep the get_perspective_transform function as is) ...
 
-def map_pieces_to_board(piece_results_boxes, class_names, matrix, output_size):
+def map_pieces_to_board(piece_results_boxes, class_names, matrix):
     """
     Takes the raw piece prediction 'boxes' and the transform matrix,
     and returns a final 8x8 board state.
@@ -91,7 +89,7 @@ def map_pieces_to_board(piece_results_boxes, class_names, matrix, output_size):
     """
     
     board_state = [["empty" for _ in range(8)] for _ in range(8)]
-    square_size = output_size / 8
+    square_size = IMAGE_SIZE / 8
     
     print(f"\n--- DEBUG: map_pieces_to_board (square_size={square_size}) ---")
     
