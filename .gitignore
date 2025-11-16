@@ -6,5 +6,7 @@ ML/data/
 # training outputs
 ML/configs/
 ML/outputs/
-ML/debug_images/
+ML/runs/
+ChessBoardDetection.ipynb
+ChessPiecesDetection.ipynb
 

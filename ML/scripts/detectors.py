@@ -1,29 +1,29 @@
 # Location: ML/scripts/detectors.py
 
 from ultralytics import YOLO
-import numpy as np
 
-POSE_MODEL_PATH = "runs/pose_kp_a100_medium_v1/weights/best.pt"
-PIECE_MODEL_PATH = "runs/det_pieces_a100_v1_polish/weights/best.pt"
+CORNERS_MODEL_PATH = "runs/corners_11x_640_v2/weights/best.pt"
+PIECE_MODEL_PATH = "runs/pieces_11x_640_v1/weights/best.pt"
+IMAGE_SIZE = 640  # both models use 640x640 input
 
 
 try:
-    POSE_MODEL = YOLO(POSE_MODEL_PATH)
+    CORNERS_MODEL = YOLO(CORNERS_MODEL_PATH)
     PIECE_MODEL = YOLO(PIECE_MODEL_PATH)
     # Use your specific category mapping, overriding the model's default because our data yaml was wrong.
     PIECE_CLASS_NAMES = {
-        0: 'white-pawn',
-        1: 'white-rook',
-        2: 'white-knight',
-        3: 'white-bishop',
-        4: 'white-queen',
-        5: 'white-king',
-        6: 'black-pawn',
-        7: 'black-rook',
-        8: 'black-knight',
-        9: 'black-bishop',
-        10: 'black-queen',
-        11: 'black-king'
+        0: 'black-bishop',
+        1: 'black-king',
+        2: 'black-knight',
+        3: 'black-pawn',
+        4: 'black-queen',
+        5: 'black-rook',
+        6: 'white-bishop',
+        7: 'white-king',
+        8: 'white-knight',
+        9: 'white-pawn',
+        10: 'white-queen',
+        11: 'white-rook'
     }
     print("INFO:     Models loaded successfully in detectors.py")
 except Exception as e:
@@ -34,29 +34,30 @@ except Exception as e:
 
 def get_board_corners(image):
     """
-    Runs the pose model on an image.
-    Image is ASSUMED to be 1024x1024.
+    Run corner model once with very low confidence,
+    and return top 4 bbox centers as (x,y).
     """
-    # --- NO imgsz=1024 ---
-    results = POSE_MODEL.predict(image, verbose=False)
-    
-    keypoints_data = results[0].keypoints.xy[0].cpu().numpy()
-    
-    if len(keypoints_data) < 4:
-        print("ERROR: Not enough keypoints found to form a board.")
+    results = CORNERS_MODEL.predict(image, imgsz=640, conf=0.01, iou=0.001)[0]
+    boxes = results.boxes
+
+    if boxes is None or len(boxes) < 4:
+        print("ERROR: Not enough corners detected (need 4).")
         return None
-    elif len(keypoints_data) > 4:
-        keypoints_data = keypoints_data[:4]
-        
-    return keypoints_data
+
+    xywh = boxes.xywh.cpu().numpy()
+    conf = boxes.conf.cpu().numpy()
+
+    # take top 4 by confidence
+    idx = conf.argsort()[-4:]
+    centers = xywh[idx, :2].astype("float32")  # (x, y) are bbox centers
+    return centers
+
 
 def get_piece_predictions(image):
     """
     Runs the piece detection model on an image.
     Image is ASSUMED to be 1024x1024.
     """
-    # --- NO imgsz=1024 ---
-    # We KEEP conf=0.1, which was a correct fix.
-    results = PIECE_MODEL.predict(image, verbose=False, conf=0.1)
+    results = PIECE_MODEL.predict(image, verbose=False, iou=0.5, conf=0.3)
     
     return results[0].boxes

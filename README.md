@@ -16,3 +16,65 @@ to run debug server
 python debug_server.py
 
 and go to link http://127.0.0.1:8000/
+
+
+# data
+
+corners detection dataset
+
+https://universe.roboflow.com/chessboard-corner-detection-3b5bs/chessboard-detection-yqcnu/dataset/3
+
+chess pieces detection dataset 
+
+https://universe.roboflow.com/fhv/chess-pieces-2-6l8qq
+
+
+# Strategy to get better perosnalised boards 
+
+### Personalized Chess-Piece Recognition — Final Strategy
+1. Default mode: generic model
+
+App uses the pretrained YOLO model right away.
+
+If predictions are accurate → done (no friction).
+
+If confidence drops or errors > 2 → suggest a quick board scan.
+
+2. Board scan (user calibration)
+
+User takes 1–3 photos of the starting position.
+
+App detects board corners, flattens image, and uses the known FEN to auto-label all pieces.
+
+This generates ~32 labeled samples instantly (one per piece).
+
+3. Two-layer learning process
+
+A. On-device “train” (fast)
+
+Extract embeddings → build per-class prototypes.
+
+Use nearest-prototype classification for immediate, personalized results.
+
+B. Server-side “update” (background)
+
+Upload these crops and auto-labels.
+
+Fine-tune only YOLO’s final layers on the new samples (1–5 min).
+
+Improved global model benefits all users over time.
+
+4. Active learning while playing
+
+If the app is uncertain, show a one-tap correction (“Knight? Bishop?”).
+
+Store correction → refine prototypes and feed back to global training.
+
+✅ Result
+
+Smooth experience for most users (no scan needed).
+
+Personalized accuracy for unique boards when scanned.
+
+Continuous improvement of both local and global models.
+
