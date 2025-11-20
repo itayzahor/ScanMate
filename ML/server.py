@@ -33,55 +33,55 @@ def run_full_pipeline(image_bytes):
     # 3. Find Board Corners
     corners = get_board_corners(img_resized)
     if corners is None:
-        raise ValueError("Could not find board corners.")
+        return None
     
     # 4. Get Perspective Transform
     homography = get_perspective_transform(corners, img_resized)
     
-    # 5. Get Warped Image (for debug)
-    warped_image = cv2.warpPerspective(img_resized, homography, (IMAGE_SIZE, IMAGE_SIZE))
-    
-    # 6. Find All Pieces
+    # 5. Find All Pieces
     piece_boxes = get_piece_predictions(img_resized)
     
-    # 7. Map Pieces to Board
+    # 6. Map Pieces to Board
     board_state = map_pieces_to_board(
         piece_boxes,
         PIECE_CLASS_NAMES,
         homography, 
     )
-    # 8. Convert to FEN
+    # 7. Convert to FEN
     fen_string = convert_board_to_fen(board_state)
-    
-    
     return fen_string
 
 
-# --- 4. UPDATE THE API ENDPOINT ---
 @app.post("/recognize_board/")
 async def recognize_board_endpoint(file: UploadFile = File(...)):
     """
-    The main API endpoint. Receives an image, runs the
-    pipeline, and returns the FEN string + debug images.
+    Receives an image, runs the pipeline, and returns the FEN string.
     """
     start_time = time.time()
     
     try:
         image_bytes = await file.read()
+        print(
+            f"[recognize_board] Received upload: name={file.filename} size={len(image_bytes)} bytes"
+        )
         
-        # --- This now returns 3 items ---
-        fen, board, debug_images = run_full_pipeline(image_bytes)
+        fen = run_full_pipeline(image_bytes)
+        if fen is None:
+            return JSONResponse(status_code=422, content={
+                "status": "error",
+                "message": "Failed to recognize a chess board in the image."
+            })
         
         end_time = time.time()
         processing_time = end_time - start_time
+        print(
+            f"[recognize_board] Finished processing in {processing_time:.2f}s"
+        )
         
-        # --- We add the debug_images to the response ---
         return JSONResponse(content={
             "status": "success",
             "fen": fen,
-            "board_state": board,
             "processing_time_seconds": round(processing_time, 2),
-            "debug_images": debug_images  # <-- HERE
         })
         
     except Exception as e:
