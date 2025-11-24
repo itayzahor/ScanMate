@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 
 from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CLASS_NAMES, IMAGE_SIZE
 # board_mapper.py (shim during transition)
-from scripts.board_orientation import get_perspective_transform
+from scripts.board_orientation import get_perspective_transform, orient_board_state_for_white
 from scripts.piece_mapping import map_pieces_to_board
 
 from scripts.fen_converter import convert_board_to_fen
@@ -156,6 +156,7 @@ def run_full_pipeline(image_bytes):
         homography, 
     )
     print(board_state)
+    board_state = orient_board_state_for_white(board_state)
     
     # 8. Convert to FEN
     fen_string = convert_board_to_fen(board_state)
