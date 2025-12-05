@@ -1,12 +1,21 @@
 import React, {useRef, useState} from 'react';
-import {Text, View, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image} from 'react-native';
+import {Text, View, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, Dimensions} from 'react-native';
 import {Camera, useCameraDevice, useCameraFormat} from 'react-native-vision-camera';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useIsFocused} from '@react-navigation/native';
 import ImageEditor from '@react-native-community/image-editor';
 
 import {styles} from '../styles/ScanBoard.styles';
-import type {RootStackParamList} from '../../App'; 
+import type {RootStackParamList} from '../../App';
+import {ScreenHeader} from '../components/ScreenHeader';
+import {getBoardSize, HEADER_HEIGHT} from '../constants/layout';
+
+const BOARD_TOP_GAP = 24;
+const SCAN_TIPS = [
+  'Keep the phone steady directly above the board',
+  'Make sure all four corners sit inside the green frame',
+  'Avoid harsh shadows or glare on the pieces',
+];
 
 type ScanBoardProps = NativeStackScreenProps<RootStackParamList, 'ScanBoard'>;
 
@@ -15,13 +24,19 @@ export const ScanBoard = ({navigation}: ScanBoardProps) => {
   const cameraRef = useRef<Camera>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const isScreenFocused = useIsFocused();
+  const boardSize = getBoardSize();
+  const windowDimensions = Dimensions.get('window');
+  const windowWidth = windowDimensions.width;
+  const windowHeight = windowDimensions.height;
+  const overlayTopPx = HEADER_HEIGHT + BOARD_TOP_GAP;
+  const boardOffsetX = (windowWidth - boardSize) / 2;
 
   // Defines a valid camera format with photo capabilities and 30fps
   const format = useCameraFormat(device, [
-      { photo: true }, 
-      { fps: 30 } 
+    {photoResolution: 'max'},
+    {fps: 30},
   ]);
-  
+
   // Camera is active only when the screen is focused.
   const isActive = isScreenFocused;
 
@@ -51,11 +66,20 @@ export const ScanBoard = ({navigation}: ScanBoardProps) => {
         },
       );
 
-      const OVERLAY_RATIO = 0.8;
-      const desiredSquareWidth = Math.floor(actualWidth * OVERLAY_RATIO);
-      const squareSize = Math.min(actualHeight, desiredSquareWidth);
-      const offsetX = Math.max(0, Math.floor((actualWidth - squareSize) / 2));
-      const offsetY = Math.max(0, Math.floor((actualHeight - squareSize) / 2));
+      const displayScale = Math.max(windowWidth / actualWidth, windowHeight / actualHeight);
+      const displayedWidth = actualWidth * displayScale;
+      const displayedHeight = actualHeight * displayScale;
+      const horizontalOverflow = Math.max(displayedWidth - windowWidth, 0) / 2;
+      const verticalOverflow = Math.max(displayedHeight - windowHeight, 0) / 2;
+
+      const boardPixelWidth = Math.floor(boardSize / displayScale);
+      const squareSize = Math.min(boardPixelWidth, actualWidth, actualHeight);
+
+      let offsetX = Math.floor((boardOffsetX + horizontalOverflow) / displayScale);
+      offsetX = Math.max(0, Math.min(offsetX, actualWidth - squareSize));
+
+      let offsetY = Math.floor((overlayTopPx + verticalOverflow) / displayScale);
+      offsetY = Math.max(0, Math.min(offsetY, actualHeight - squareSize));
 
       const cropData = {
         offset: {
@@ -82,8 +106,6 @@ export const ScanBoard = ({navigation}: ScanBoardProps) => {
       navigation.navigate('Result', { photoPath: resizedPath });
     }
   };
-  
-
   if (device == null) {
     return (
       <View style={styles.errorContainer}>
@@ -101,19 +123,19 @@ export const ScanBoard = ({navigation}: ScanBoardProps) => {
         isActive={isActive}
         format={format} 
         photo={true}
-        resizeMode="contain" 
+        resizeMode="cover"
       />
       
-      {/* 1. OPAQUE BLACK MASK (Masks the area outside the 80% square) */}
+      {/* 1. OPAQUE BLACK MASK (Masks the area outside the board square) */}
       <View style={styles.viewfinderContainer}>
-          <View style={styles.viewfinderTopBottomMask} /> 
+        <View style={[styles.viewfinderTopMask, {height: overlayTopPx}]} />
           <View style={styles.viewfinderMiddleRow}>
             <View style={styles.viewfinderSideMask} />
             {/* The transparent square cutout */}
             <View style={styles.viewfinderGuide} />
             <View style={styles.viewfinderSideMask} />
           </View>
-          <View style={styles.viewfinderTopBottomMask} />
+          <View style={styles.viewfinderBottomMask} />
       </View>
       
       {/* 2. CONTROLS OVERLAY (The UI Layer) */}
@@ -121,15 +143,23 @@ export const ScanBoard = ({navigation}: ScanBoardProps) => {
         
         {/* Top instructions text */}
         <View style={styles.instructionBox}>
-          <Text style={styles.instructionText}>
-            Make sure all the pieces and the full board are visible inside the green square.
-          </Text>
+          <ScreenHeader
+            title="Scan Board"
+            onBack={() => navigation.goBack()}
+            style={styles.screenHeader}
+          />
         </View>
 
-        {/* Spacer to push controls correctly */}
-        <View style={styles.viewfinderSpacer} /> 
+        <View style={styles.viewfinderSpacer} />
+
+        <View style={[styles.tipsList, { width: boardSize }]}>
+          {SCAN_TIPS.map((tip) => (
+            <Text key={tip} style={styles.tipText}>
+              {`• ${tip}`}
+            </Text>
+          ))}
+        </View>
         
-        {/* Bottom capture button container */}
         <View style={styles.captureButtonContainer}>
           <TouchableOpacity 
             style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}

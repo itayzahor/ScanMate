@@ -1,11 +1,19 @@
 // src/screens/ResultScreen.tsx
 
 import React, {useState} from 'react';
-import {View, Text, Image, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
+import {View, Image, TouchableOpacity, Alert, ActivityIndicator, Text} from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 
 import {styles} from '../styles/ResultScreen.styles';
 import {uploadBoardPhoto} from '../services/api';
+import {normalizeFen} from '../utils/fen';
+import {ScreenHeader} from '../components/ScreenHeader';
+import {getBoardSize} from '../constants/layout';
+
+const RESULT_TIPS = [
+  'Confirm every square is visible edge to edge',
+  'Retake if pieces look blurry or cut off',
+];
 
 // Import RootStackParamList from App.tsx
 import type {RootStackParamList} from '../../App'; 
@@ -17,12 +25,14 @@ export const ResultScreen = ({route, navigation}: ResultScreenProps) => {
   // Use the 'route' object to access the parameter passed from ScanBoard
   const {photoPath} = route.params;
   const [isProcessing, setIsProcessing] = useState(false);
+  const boardSize = getBoardSize();
 
   const onAccept = async () => {
     try {
       setIsProcessing(true);
       const fen = await uploadBoardPhoto(photoPath);
-      navigation.navigate('Analysis', {fen});
+      const normalizedFen = normalizeFen(fen);
+      navigation.navigate('Analysis', {fen: normalizedFen});
     } catch (error) {
       console.error('Upload failed', error);
       Alert.alert('Upload failed', error instanceof Error ? error.message : 'Unknown error');
@@ -40,31 +50,32 @@ export const ResultScreen = ({route, navigation}: ResultScreenProps) => {
 
   return (
     <View style={styles.container}>
-      
-      {/* 1. IMAGE DISPLAY AREA (Aligned to 80% square) */}
-      <View style={styles.imageDisplayArea}>
-        <Image 
-          source={{ uri: `file://${photoPath}` }} 
-          style={styles.image} 
-        />
-      </View>
-      
-      {/* 2. CONFIRMATION OVERLAY (Text and Buttons) */}
-      <View style={styles.confirmationOverlay}>
-        
-        {/* Top Text Instruction Box */}
-        <View style={styles.instructionBox}>
-          <Text style={styles.instructionText}>
-            Is the photo clear and is the entire chessboard visible?
-          </Text>
+      <View style={styles.content}>
+        <View style={styles.headerContainer}>
+          <ScreenHeader
+            title="Confirm Photo"
+            onBack={() => navigation.goBack()}
+          />
         </View>
 
-        {/* Spacer to push buttons to the bottom */}
-        <View style={styles.spacer} /> 
-        
-        {/* Button Row */}
+        <View style={[styles.imageDisplayArea, {width: boardSize, height: boardSize}]}> 
+          <Image 
+            source={{ uri: `file://${photoPath}` }} 
+            style={styles.image} 
+          />
+        </View>
+
+        <View style={styles.tipsList}>
+          {RESULT_TIPS.map((tip) => (
+            <Text key={tip} style={styles.tipText}>
+              {`• ${tip}`}
+            </Text>
+          ))}
+        </View>
+
+        <View style={styles.spacer} />
+
         <View style={styles.buttonRow}>
-          {/* Retake Button (X) */}
           <TouchableOpacity 
             style={[styles.button, styles.retakeButton]}
             onPress={onRetake}
@@ -73,7 +84,6 @@ export const ResultScreen = ({route, navigation}: ResultScreenProps) => {
             <Text style={styles.buttonText}>❌</Text>
           </TouchableOpacity>
           
-          {/* Accept Button (V) */}
           <TouchableOpacity 
             style={[styles.button, styles.acceptButton]}
             onPress={onAccept}

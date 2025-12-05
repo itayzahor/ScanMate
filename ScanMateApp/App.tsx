@@ -2,6 +2,7 @@
 
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, Text, View, StyleSheet} from 'react-native';
+import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useCameraPermission} from 'react-native-vision-camera';
@@ -10,7 +11,7 @@ import {useCameraPermission} from 'react-native-vision-camera';
 import {Main} from './src/screens/Main';
 import {ScanBoard} from './src/screens/ScanBoard';
 import {ResultScreen} from './src/screens/ResultScreen';
-import {AnalysisScreen} from './src/screens/AnalysisScreen';
+import AnalysisScreen from './src/screens/Analysis';
 
 // This defines all your screens and what parameters they take
 export type RootStackParamList = {
@@ -65,38 +66,45 @@ const App = () => {
   }
 
   // Permission is granted, load the full app navigator
+  const stackScreens = (
+    <>
+      <Stack.Screen
+        name="Main"
+        component={Main}
+      />
+      <Stack.Screen
+        name="ScanBoard"
+        component={ScanBoard}
+        options={{
+          freezeOnBlur: false,
+        }}
+      />
+      <Stack.Screen
+        name="Result"
+        component={ResultScreen}
+      />
+      <Stack.Screen
+        name="Analysis"
+        component={AnalysisScreen}
+      />
+    </>
+  );
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
-        <Stack.Screen
-          name="Main"
-          component={Main} // Use your Main component
-          options={{title: 'ScanMate Home'}}
-        />
-        <Stack.Screen
-          name="ScanBoard" // Use your new screen name
-          component={ScanBoard} // Use your ScanBoard component
-          options={{
-            headerShown: false,
-            freezeOnBlur: false, // ⬅️ ADD THIS LINE
-          }}
-        />
-        <Stack.Screen
-          name="Result" // ⬅️ NEW SCREEN REGISTERED HERE
-          component={ResultScreen}
-          options={{title: 'Confirm Photo'}}
-        />
-        <Stack.Screen
-          name="Analysis"
-          component={AnalysisScreen}
-          options={{title: 'Analysis'}}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <GestureHandlerRootView style={styles.appRoot}>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{headerShown: false}}>
+          {stackScreens}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </GestureHandlerRootView>
   );
 };
 
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     justifyContent: 'center',

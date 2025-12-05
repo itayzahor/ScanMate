@@ -1,8 +1,9 @@
 import {StyleSheet, Dimensions} from 'react-native';
-import {colors} from '../theme'; 
+import {colors} from '../theme';
 
-const VIEWPORT_WIDTH = Dimensions.get('window').width;
-const SQUARE_SIZE = VIEWPORT_WIDTH * 0.8; // 80% of screen width
+const WINDOW_WIDTH = Dimensions.get('window').width;
+const BOARD_MARGIN = 16;
+const BOARD_SIZE = WINDOW_WIDTH - BOARD_MARGIN * 2;
 
 export const styles = StyleSheet.create({
   container: {
@@ -27,33 +28,40 @@ export const styles = StyleSheet.create({
   // The UI Layer that sits on top of the mask
   overlayControls: {
     ...StyleSheet.absoluteFillObject,
-    // We remove paddingBottom and let flex-end push the button to the edge
-    justifyContent: 'space-between', 
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingHorizontal: BOARD_MARGIN,
+    paddingBottom: 20,
   },
   
   instructionBox: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingTop: 20,
+    paddingBottom: 20,
     width: '100%',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    marginBottom: 20,
   },
-  instructionText: {
-    fontSize: 16,
-    textAlign: 'center',
-    color: colors.textLight,
-    paddingBottom: 10,
+  screenHeader: {
+    width: '100%',
+  },
+  tipsList: {
+    width: '100%',
+    gap: 6,
+    marginTop: 16,
+  },
+  tipText: {
+    color: '#b5b5b5',
+    fontSize: 14,
+    lineHeight: 20,
   },
 
   // ----------------------------------------------------
   // BUTTON STYLES (White and at the absolute bottom)
   // ----------------------------------------------------
   captureButtonContainer: {
-    // This container is pushed to the bottom by 'space-between' in overlayControls
     width: '100%',
     alignItems: 'center',
-    paddingBottom: 20, // ⬅️ Adding a small padding here for spacing from the edge
+    marginTop: 'auto',
   },
   captureButton: {
     backgroundColor: colors.background, // ⬅️ FIX: Changed from colors.primary (Red) to colors.background (White)
@@ -78,35 +86,37 @@ export const styles = StyleSheet.create({
   // ----------------------------------------------------
   viewfinderContainer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent', 
-    justifyContent: 'center',
+    backgroundColor: 'transparent',
     alignItems: 'center',
   },
-  viewfinderTopBottomMask: {
+  viewfinderTopMask: {
     backgroundColor: colors.backgroundDark,
-    flex: 1, 
+    width: '100%',
+  },
+  viewfinderBottomMask: {
+    backgroundColor: colors.backgroundDark,
+    flex: 1,
     width: '100%',
   },
   viewfinderMiddleRow: {
     flexDirection: 'row',
     width: '100%',
-    height: SQUARE_SIZE, 
+    height: BOARD_SIZE,
   },
   viewfinderSideMask: {
     backgroundColor: colors.backgroundDark,
     flex: 1, 
   },
   viewfinderGuide: {
-    width: SQUARE_SIZE,
-    height: SQUARE_SIZE,
+    width: BOARD_SIZE,
+    height: BOARD_SIZE,
     backgroundColor: 'transparent', 
     borderWidth: 3,
     borderColor: colors.secondary, 
   },
   viewfinderSpacer: {
-    // This spacer now sits between the Instruction box and the capture button
-    height: SQUARE_SIZE, 
+    height: BOARD_SIZE,
     width: '100%',
-    backgroundColor: 'transparent', // The spacer is transparent
+    backgroundColor: 'transparent',
   },
 });

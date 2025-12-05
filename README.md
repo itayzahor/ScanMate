@@ -78,3 +78,60 @@ Personalized accuracy for unique boards when scanned.
 
 Continuous improvement of both local and global models.
 
+
+# download stockfish 
+
+extract it to ML/engines folder
+
+https://stockfishchess.org/download/
+
+
+## API Endpoints
+
+### `POST /recognize_board/`
+- **Body**: multipart form with a single `file` field (JPEG or PNG bytes of the board photo).
+- **Response**:
+	```json
+	{
+		"status": "success",
+		"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"processing_time_seconds": 3.41
+	}
+	```
+- **Errors**: `422` when the pipeline cannot find a chessboard, `400` on invalid input.
+
+### `POST /analyze_position/`
+- **Body (JSON)**:
+	```json
+	{
+		"fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 4",
+		"depth": 18,
+		"multipv": 3
+	}
+	```
+	- `fen` (required): Forsyth–Edwards Notation string understood by Stockfish.
+	- `depth` (optional): 1–40 search depth, defaults to 14 if omitted.
+	- `multipv` (optional): 1–5 candidate lines to return, defaults to 1.
+- **Response**:
+	```json
+	{
+		"status": "success",
+		"depth": 18,
+		"engine": "Stockfish 17.1",
+		"lines": [
+			{
+				"best_move": "e4e5",
+				"best_move_san": "e5",
+				"evaluation": { "type": "cp", "value": 35 },
+				"pv": ["e5", "Nf3", "Nc6", "Bc4"]
+			}
+		]
+	}
+	```
+- **Errors**:
+	- `400` for invalid FEN strings.
+	- `503` if the Stockfish binary is missing (set the `STOCKFISH_PATH` env var or place the engine under `ML/engines/stockfish`).
+	- `500` for unexpected engine failures.
+
+Both endpoints are served by `python ML/server.py` (Uvicorn on `http://0.0.0.0:8000`).
+

@@ -1,6 +1,14 @@
-apply plugin: "com.android.application"
-apply plugin: "org.jetbrains.kotlin.android"
-apply plugin: "com.facebook.react"
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("com.facebook.react")
+}
+
+ext {
+    reanimated = [
+        buildFromSource: true,
+    ]
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -73,15 +81,15 @@ def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
-    ndkVersion rootProject.ext.ndkVersion
-    buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+    ndkVersion "26.1.10909125"
+    buildToolsVersion "34.0.0"
+    compileSdk 34
 
     namespace "com.scanmateapp"
     defaultConfig {
         applicationId "com.scanmateapp"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion 24
+        targetSdkVersion 34
         versionCode 1
         versionName "1.0"
     }
@@ -104,6 +112,9 @@ android {
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
+    }
+    buildFeatures {
+        buildConfig true
     }
 }
 
