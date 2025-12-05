@@ -1,8 +1,42 @@
-import cv2, numpy as np
+import cv2
+import numpy as np
+
 from scripts.detectors import IMAGE_SIZE
 
 
-import numpy as np
+def rotate_board_state_180(board_state):
+    """Return a deep-copied board_state rotated 180 degrees."""
+    return [list(reversed(row)) for row in reversed(board_state)]
+
+
+def orient_board_state_for_white(board_state):
+    """
+    Ensure the board matrix is oriented from White's perspective (white pieces
+    closer to the bottom ranks). If enough white/black pieces exist to decide,
+    rotate the board 180 degrees when white pieces appear closer to the top.
+    """
+    white_rows = []
+    black_rows = []
+
+    for row_idx, row in enumerate(board_state):
+        for cell in row:
+            if not cell:
+                continue
+            if cell.startswith('white'):
+                white_rows.append(row_idx)
+            elif cell.startswith('black'):
+                black_rows.append(row_idx)
+
+    if not white_rows or not black_rows:
+        return board_state
+
+    white_avg = sum(white_rows) / len(white_rows)
+    black_avg = sum(black_rows) / len(black_rows)
+
+    if white_avg < black_avg:
+        return rotate_board_state_180(board_state)
+    return board_state
+
 
 def order_corners(points):
     """
@@ -23,8 +57,6 @@ def order_corners(points):
     return poly.astype(np.float32)
 
 
-
-import cv2, numpy as np
 
 def _a1_is_dark(rect, is_bgr=True):
     # 1) L channel (perceptual lightness)
@@ -75,13 +107,8 @@ def get_perspective_transform(corners, img_resized):
     rect = cv2.warpPerspective(img_resized, homography, (IMAGE_SIZE, IMAGE_SIZE))
     if _a1_is_dark(rect):
             return homography
-    # 3) a1 is light → rotate ±90° decided in *source* geometry:
-    TL, TR, BR, BL = src
-    
-    # Determine rotation direction by comparing x-coords of TL and BL
-    k = 1 if TL[0] < BL[0] else -1
-    # print(f"DEBUG: get_perspective_transform: TL={TL[0]}, BL={BL[0]}, rotating {'CW' if k==1 else 'CCW'} to make a1 dark")
-    dst90 = np.roll(dst0, k, axis=0)
+    # 3) a1 is light → rotate destination indices by 90° (direction no longer matters)
+    dst90 = np.roll(dst0, 1, axis=0)
     return cv2.getPerspectiveTransform(src, dst90)
         
     
