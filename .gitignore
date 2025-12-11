@@ -1,9 +1,8 @@
 # venv
 ML/.venv/
 
-# raw/generate datasets
 ML/data/
-# training outputs
+
 ML/configs/
 ML/outputs/
 
@@ -16,3 +15,5 @@ ML/**/*.pt
 node_modules
 .env
 .DS_Store
+ML/runs/*/
+ML/engines/*/
