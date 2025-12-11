@@ -2,8 +2,8 @@
 import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import type {RootStackParamList} from '../../App';
-import {STARTING_FEN} from '../utils/fen';
+import type {RootStackParamList} from '../../../App';
+import {STARTING_FEN} from '../../shared/utils/fen';
 
 // This component receives a 'navigation' prop from the navigator
 // Define the prop types for this screen

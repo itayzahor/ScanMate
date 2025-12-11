@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ScanBoard } from "../screens/ScanBoard";
 import { ResultScreen } from "../screens/ResultScreen";
 import AnalysisScreen from "../screens/Analysis";
-import type { RootStackParamList } from "../../App";
+import type { RootStackParamList } from "../../../App";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

@@ -2,7 +2,7 @@ import {Platform} from 'react-native';
 
 // Set this to your laptop/desktop LAN IP when testing on a physical device.
 // Leave it as an empty string when using an Android emulator (which can hit 10.0.2.2).
-const LAN_HOST = '10.0.33.2';
+const LAN_HOST = '192.168.1.39';
 const LAN_BASE_URL = LAN_HOST ? `http://${LAN_HOST}:8000` : null;
 
 const DEFAULT_BASE_URL = Platform.select({
@@ -34,6 +34,29 @@ export type AnalyzePositionResponse = {
   depth: number;
   engine: string;
   lines: AnalysisLine[];
+};
+
+type AnalyzePositionErrorResponse = {
+  detail?: string;
+  message?: string;
+};
+
+const extractApiMessage = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const detail = (payload as AnalyzePositionErrorResponse).detail;
+  if (typeof detail === 'string') {
+    return detail;
+  }
+
+  const message = (payload as AnalyzePositionErrorResponse).message;
+  if (typeof message === 'string') {
+    return message;
+  }
+
+  return undefined;
 };
 
 export const uploadBoardPhoto = async (filePath: string): Promise<string> => {
@@ -116,19 +139,17 @@ export const analyzePosition = async (
   }
 
   const responseText = await response.text();
-  let json: AnalyzePositionResponse | { detail?: string; message?: string } | null = null;
+  let json: AnalyzePositionResponse | AnalyzePositionErrorResponse | null = null;
   try {
     json = JSON.parse(responseText);
   } catch (parseError) {
     console.warn('[analyzePosition] Failed to parse server response as JSON', parseError);
   }
 
-  if (!response.ok || !json || (json as AnalyzePositionResponse).status !== 'success') {
-    const message =
-      (json && ('detail' in json ? json.detail : json.message)) ||
-      `Server responded with status ${response.status}`;
-    throw new Error(typeof message === 'string' ? message : 'Engine analysis failed');
+  if (!response.ok || !json || !('status' in json) || json.status !== 'success') {
+    const message = extractApiMessage(json) ?? `Server responded with status ${response.status}`;
+    throw new Error(message);
   }
 
-  return json as AnalyzePositionResponse;
+  return json;
 };

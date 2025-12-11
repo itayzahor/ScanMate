@@ -10,12 +10,19 @@ py -m venv .venv
 
 pip install -r requirements.txt
 
-
 to run debug server
 
 python debug_server.py
 
 and go to link http://127.0.0.1:8000/
+
+to run server for app 
+
+python server.py 
+
+then on another terminal 
+
+npx react-native run-android
 
 
 # data

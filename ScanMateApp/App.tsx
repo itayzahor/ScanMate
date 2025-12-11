@@ -8,10 +8,10 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useCameraPermission} from 'react-native-vision-camera';
 
 // Import from your new file structure
-import {Main} from './src/screens/Main';
-import {ScanBoard} from './src/screens/ScanBoard';
-import {ResultScreen} from './src/screens/ResultScreen';
-import AnalysisScreen from './src/screens/Analysis';
+import {Main} from './src/app/screens/Main';
+import {ScanBoard} from './src/app/screens/ScanBoard';
+import {ResultScreen} from './src/app/screens/ResultScreen';
+import AnalysisScreen from './src/app/screens/Analysis';
 
 // This defines all your screens and what parameters they take
 export type RootStackParamList = {
