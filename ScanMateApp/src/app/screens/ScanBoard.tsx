@@ -5,10 +5,10 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useIsFocused} from '@react-navigation/native';
 import ImageEditor from '@react-native-community/image-editor';
 
-import {styles} from '../styles/ScanBoard.styles';
-import type {RootStackParamList} from '../../App';
-import {ScreenHeader} from '../components/ScreenHeader';
-import {getBoardSize, HEADER_HEIGHT} from '../constants/layout';
+import {styles} from '../../ui/styles/ScanBoard.styles';
+import type {RootStackParamList} from '../../../App';
+import {ScreenHeader} from '../../ui/components/ScreenHeader';
+import {getBoardSize, HEADER_HEIGHT} from '../../shared/constants/layout';
 
 const BOARD_TOP_GAP = 24;
 const SCAN_TIPS = [

@@ -16,16 +16,24 @@ import {
 import Chessboard, { ChessboardRef } from 'react-native-chessboard';
 import { Chess, Square, PieceSymbol, Color, Move } from 'chess.js';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../../App';
-import { styles } from '../ui/styles/Analysis.styles';
-import { analyzePosition, AnalyzePositionResponse, AnalysisLine } from '../services/api';
-import { ScreenHeader } from '../ui/components/ScreenHeader';
-import { normalizeFen, STARTING_FEN } from '../shared/utils/fen';
-import { getBoardSize } from '../shared/constants/layout';
+import type { RootStackParamList } from '../../../App';
+import { styles } from '../../ui/styles/Analysis.styles';
+import { analyzePosition, AnalyzePositionResponse, AnalysisLine } from '../../services/api';
+import { ScreenHeader } from '../../ui/components/ScreenHeader';
+import { normalizeFen, STARTING_FEN } from '../../shared/utils/fen';
+import { getBoardSize } from '../../shared/constants/layout';
 
 // --- TYPES ---
 type PieceOption = { type: PieceSymbol; color: Color; label: string; asset: ImageSourcePropType };
-type CandidateMove = { from: Square; to: Square; promotion?: PieceSymbol; isFree?: boolean };
+type LogicMove = { from: Square; to: Square; promotion?: PieceSymbol; isFree?: boolean };
+type CandidateMove = {
+  from: Square;
+  to: Square;
+  logicFrom: Square;
+  logicTo: Square;
+  promotion?: PieceSymbol;
+  isFree?: boolean;
+};
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
 const PIECE_ASSETS: Record<`${Color}${PieceSymbol}`, ImageSourcePropType> = {
@@ -64,6 +72,13 @@ const indicesToSquare = (row: number, col: number): Square | null => {
   return `${file}${rank}` as Square;
 };
 
+const reverseSquare = (square: Square): Square => {
+  const { row, col } = squareToIndices(square);
+  const reversedRow = 7 - row;
+  const reversedCol = 7 - col;
+  return indicesToSquare(reversedRow, reversedCol)!;
+};
+
 const getSquareCenter = (square: Square, boardPixels: number) => {
   const { row, col } = squareToIndices(square);
   const squareSize = boardPixels / 8;
@@ -87,6 +102,8 @@ const PIECE_OPTIONS: PieceOption[] = [
   { type: 'q', color: 'b', label: 'B Queen', asset: PIECE_ASSETS.bq },
   { type: 'k', color: 'b', label: 'B King', asset: PIECE_ASSETS.bk },
 ];
+
+const PROMOTION_CHOICES: PieceSymbol[] = ['q', 'r', 'b', 'n'];
 
 // --- LOGIC HELPERS ---
 const emptyBoard = () =>
@@ -208,14 +225,14 @@ const collectSlidingMoves = (
   });
 };
 
-const generatePseudoMoves = (fen: string, square: Square): CandidateMove[] => {
+const generatePseudoMoves = (fen: string, square: Square): LogicMove[] => {
   const info = getBoardAndPiece(fen, square);
   if (!info) {
     return [];
   }
   const { board, piece, position } = info;
   const fromSquare = indicesToSquare(position.row, position.col)!;
-  const moves: CandidateMove[] = [];
+  const moves: LogicMove[] = [];
 
   const addMove = (row: number, col: number) => {
     const targetSquare = indicesToSquare(row, col);
@@ -328,9 +345,9 @@ const FenUtils = {
       .map((row) => row.split('').reverse().join(''))
       .join('/');
 
-    const newColor = activeColor === 'w' ? 'b' : 'w';
+    const reversedEnPassant = enPassant !== '-' ? reverseSquare(enPassant as Square) : '-';
 
-    return `${reversedPlacement} ${newColor} ${castling} ${enPassant} ${halfMove} ${fullMove}`;
+    return `${reversedPlacement} ${activeColor} ${castling} ${reversedEnPassant} ${halfMove} ${fullMove}`;
   },
 
   // Toggle whose turn it is (White/Black)
@@ -367,7 +384,12 @@ const FenUtils = {
     }
     return charToPiece(cell);
   },
-  movePieceFreely: (currentFen: string, from: Square, to: Square): string => {
+  movePieceFreely: (
+    currentFen: string,
+    from: Square,
+    to: Square,
+    promotion?: PieceSymbol,
+  ): string => {
     if (from === to) {
       return normalizeFen(currentFen);
     }
@@ -383,12 +405,17 @@ const FenUtils = {
       return normalized;
     }
 
+    const pieceColor: Color = piece === piece.toUpperCase() ? 'w' : 'b';
+
     if (!board[toIdx.row]) {
       board[toIdx.row] = Array(8).fill(null);
     }
 
     board[fromIdx.row][fromIdx.col] = null;
-    board[toIdx.row][toIdx.col] = piece;
+    const destinationPiece = promotion
+      ? pieceToChar({ type: promotion, color: pieceColor })
+      : piece;
+    board[toIdx.row][toIdx.col] = destinationPiece;
 
     const newPlacement = boardToPlacement(board);
     return [newPlacement, ...rest].slice(0, 6).join(' ');
@@ -449,6 +476,42 @@ const PieceSelectorModal = ({
               <Text style={styles.trashLabel}>🗑️ Empty</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
+type PromotionModalProps = {
+  visible: boolean;
+  color: Color;
+  onSelect: (piece: PieceSymbol) => void;
+  onCancel: () => void;
+};
+
+const PromotionModal: React.FC<PromotionModalProps> = ({ visible, color, onSelect, onCancel }) => {
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onCancel}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onCancel}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Promote Pawn</Text>
+          <View style={styles.gridContainer}>
+            {PROMOTION_CHOICES.map((type) => (
+              <TouchableOpacity
+                key={`${color}-${type}`}
+                style={styles.gridItem}
+                onPress={() => onSelect(type)}
+              >
+                <Image
+                  source={PIECE_ASSETS[`${color}${type}` as `${Color}${PieceSymbol}`]}
+                  style={styles.pieceImage}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={[styles.gridItem, styles.trashOption]} onPress={onCancel}>
+            <Text style={styles.trashLabel}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     </Modal>
@@ -557,10 +620,91 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
   const [analysisBaseFen, setAnalysisBaseFen] = useState<string | null>(null);
   const [pvIndex, setPvIndex] = useState(0);
   const [overlayPixels, setOverlayPixels] = useState<number | null>(null);
+  const [isBoardFlipped, setIsBoardFlipped] = useState(false);
+  const [isMovementReversed, setIsMovementReversed] = useState(false);
+  const [promotionContext, setPromotionContext] = useState<{ move: CandidateMove; color: Color } | null>(null);
   const chessboardRef = useRef<ChessboardRef>(null);
   const navigationFen = route.params?.fen;
   const selectedMoveFromRef = useRef<Square | null>(null);
   const candidateMovesRef = useRef<CandidateMove[]>([]);
+
+  const transformFenForMovement = useCallback(
+    (value: string) => (isMovementReversed ? FenUtils.reverseFen(value) : value),
+    [isMovementReversed],
+  );
+
+  const mapSquareForMovement = useCallback(
+    (square: Square) => (isMovementReversed ? reverseSquare(square) : square),
+    [isMovementReversed],
+  );
+
+  const getPromotionColor = useCallback(
+    (move: CandidateMove): Color | null => {
+      const movingPiece = FenUtils.getPieceAt(fen, move.from);
+      if (!movingPiece || movingPiece.type !== 'p') {
+        return null;
+      }
+      const targetRank = Number(move.to[1]);
+      const whitePromotionRank = isMovementReversed ? 1 : 8;
+      const blackPromotionRank = isMovementReversed ? 8 : 1;
+      if (
+        (movingPiece.color === 'w' && targetRank === whitePromotionRank) ||
+        (movingPiece.color === 'b' && targetRank === blackPromotionRank)
+      ) {
+        return movingPiece.color;
+      }
+      return null;
+    },
+    [fen, isMovementReversed],
+  );
+
+  const executeCandidateMove = useCallback(
+    (move: CandidateMove, promotionOverride?: PieceSymbol) => {
+      const resolvedPromotion = promotionOverride ?? move.promotion;
+      if (move.isFree) {
+        const logicFen = transformFenForMovement(fen);
+        const nextLogicFen = FenUtils.movePieceFreely(
+          logicFen,
+          move.logicFrom,
+          move.logicTo,
+          resolvedPromotion,
+        );
+        const nextFen = transformFenForMovement(nextLogicFen);
+        clearAnalysisState();
+        applyFenUpdate(nextFen);
+        clearMoveSelection();
+        return;
+      }
+
+      const logicFen = transformFenForMovement(fen);
+      const chess = loadChess(logicFen);
+      if (!chess) {
+        clearMoveSelection();
+        return;
+      }
+
+      const moveResult = chess.move({
+        from: move.logicFrom,
+        to: move.logicTo,
+        promotion: resolvedPromotion,
+      });
+
+      if (moveResult) {
+        const updatedFen = transformFenForMovement(chess.fen());
+        clearAnalysisState();
+        applyFenUpdate(updatedFen);
+      }
+
+      clearMoveSelection();
+    },
+    [
+      fen,
+      applyFenUpdate,
+      clearAnalysisState,
+      clearMoveSelection,
+      transformFenForMovement,
+    ],
+  );
 
   const runOnNextFrame = useCallback((fn: () => void) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -590,9 +734,10 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
   }, [resetHighlights]);
 
   const applyFenUpdate = useCallback((nextFen: string) => {
-    setFen(nextFen);
-    chessboardRef.current?.resetBoard(nextFen);
-  }, [setFen]);
+    const normalized = normalizeFen(nextFen);
+    setFen(normalized);
+    chessboardRef.current?.resetBoard(normalized);
+  }, []);
 
   const clearAnalysisState = useCallback(() => {
     setAnalysisResult(null);
@@ -698,12 +843,21 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
 
   const highlightMovesFromSquare = useCallback(
     (square: Square) => {
-      const chess = loadChess(fen);
+      const logicFen = transformFenForMovement(fen);
+      const logicSquare = mapSquareForMovement(square);
       resetHighlights();
       highlightSquare(square, 'rgba(255, 214, 0, 0.35)');
 
+      const chess = loadChess(logicFen);
       if (!chess) {
-        const pseudoMoves = generatePseudoMoves(fen, square);
+        const pseudoMoves = generatePseudoMoves(logicFen, logicSquare).map((move) => ({
+          from: square,
+          to: mapSquareForMovement(move.to),
+          logicFrom: move.from,
+          logicTo: move.to,
+          promotion: move.promotion,
+          isFree: move.isFree,
+        }));
         pseudoMoves.forEach((move) => {
           highlightSquare(move.to, 'rgba(30, 136, 229, 0.35)');
         });
@@ -712,22 +866,43 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
         return;
       }
 
-      const moves = chess.moves({ square, verbose: true }) as Move[];
+      const moves = chess.moves({ square: logicSquare, verbose: true }) as Move[];
       moves.forEach((move) => {
-        highlightSquare(move.to as Square, 'rgba(30, 136, 229, 0.35)');
+        const uiTarget = mapSquareForMovement(move.to as Square);
+        highlightSquare(uiTarget, 'rgba(30, 136, 229, 0.35)');
       });
       selectedMoveFromRef.current = square;
       candidateMovesRef.current = moves.map((move) => ({
-        from: move.from as Square,
-        to: move.to as Square,
+        from: square,
+        to: mapSquareForMovement(move.to as Square),
+        logicFrom: move.from as Square,
+        logicTo: move.to as Square,
         promotion: move.promotion,
       }));
     },
-    [fen, highlightSquare, resetHighlights]
+    [fen, highlightSquare, resetHighlights, mapSquareForMovement, transformFenForMovement]
   );
 
   const isBlackTurn = fen.split(' ')[1] === 'b';
   const boardSize = getBoardSize();
+  const boardTransformStyle = useMemo(
+    () => ({ transform: [{ rotate: isBoardFlipped ? '180deg' : '0deg' }] }),
+    [isBoardFlipped],
+  );
+  const renderChessPiece = useCallback(
+    (id: `${Color}${PieceSymbol}`) => (
+      <Image
+        source={PIECE_ASSETS[id]}
+        style={{
+          width: boardSize / 8,
+          height: boardSize / 8,
+          transform: [{ rotate: isBoardFlipped ? '180deg' : '0deg' }],
+        }}
+        resizeMode="contain"
+      />
+    ),
+    [boardSize, isBoardFlipped],
+  );
 
   // --- HANDLERS ---
 
@@ -737,23 +912,44 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
     applyFenUpdate(newFen);
   };
 
+  const handleToggleBoardPerspective = () => {
+    clearMoveSelection();
+    setIsBoardFlipped((prev) => !prev);
+  };
+
   const handleFlipDirection = () => {
     Alert.alert(
-      "Flip Board Direction?",
-      "This will reverse the board logic (rotate 180°). Use this if your pawns are moving in the wrong direction.",
+      isMovementReversed ? "Restore Piece Direction?" : "Flip Piece Direction?",
+      "This toggles how moves are interpreted without moving the pieces. Use it if captures and pawn pushes go the wrong way.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Flip",
+          text: isMovementReversed ? "Restore" : "Flip",
           onPress: () => {
             clearAnalysisState();
-            const newFen = FenUtils.reverseFen(fen);
-            applyFenUpdate(newFen);
+            clearMoveSelection();
+            setIsMovementReversed((prev) => !prev);
           }
         }
       ]
     );
   };
+
+  const handlePromotionSelect = useCallback(
+    (pieceType: PieceSymbol) => {
+      if (!promotionContext) {
+        return;
+      }
+      executeCandidateMove(promotionContext.move, pieceType);
+      setPromotionContext(null);
+    },
+    [executeCandidateMove, promotionContext],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPromotionContext(null);
+    clearMoveSelection();
+  }, [clearMoveSelection]);
 
   const handleSquarePress = useCallback(
     (square: Square) => {
@@ -763,21 +959,12 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
       if (selectedMoveFrom) {
         const move = candidateMoves.find((m) => m.to === square);
         if (move) {
-          if (move.isFree) {
-            const nextFen = FenUtils.movePieceFreely(fen, move.from, move.to);
-            clearAnalysisState();
-            applyFenUpdate(nextFen);
+          const promotionColor = getPromotionColor(move);
+          if (promotionColor) {
+            setPromotionContext({ move, color: promotionColor });
           } else {
-            const chess = loadChess(fen);
-            if (chess) {
-              const moveResult = chess.move({ from: move.from, to: move.to, promotion: move.promotion });
-              if (moveResult) {
-                clearAnalysisState();
-                applyFenUpdate(chess.fen());
-              }
-            }
+            executeCandidateMove(move);
           }
-          clearMoveSelection();
           return;
         }
 
@@ -794,7 +981,14 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
         clearMoveSelection();
       }
     },
-    [fen, clearAnalysisState, applyFenUpdate, highlightMovesFromSquare, clearMoveSelection]
+    [
+      fen,
+      executeCandidateMove,
+      highlightMovesFromSquare,
+      clearMoveSelection,
+      getPromotionColor,
+      setPromotionContext,
+    ]
   );
 
   const handleSquareLongPress = useCallback(
@@ -845,10 +1039,10 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
       if (nextFen) {
         clearAnalysisState();
         clearMoveSelection();
-        setFen(nextFen);
+        applyFenUpdate(nextFen);
       }
     },
-    [clearAnalysisState, clearMoveSelection]
+    [applyFenUpdate, clearAnalysisState, clearMoveSelection]
   );
 
   return (
@@ -864,12 +1058,19 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
           style={styles.header}
         />
 
-        <View style={[styles.boardWrapper, { width: boardSize, height: boardSize }]}>
+        <View
+          style={[
+            styles.boardWrapper,
+            { width: boardSize, height: boardSize },
+            boardTransformStyle,
+          ]}
+        >
           <Chessboard
             ref={chessboardRef}
             fen={fen}
             onMove={onMove}
             boardSize={boardSize}
+            renderPiece={renderChessPiece}
           />
           <View
             style={styles.boardOverlay}
@@ -910,12 +1111,22 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
         </View>
 
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleFlipDirection}>
-            <Text style={styles.buttonText}>🔄 Flip Direction</Text>
+          <TouchableOpacity style={styles.actionButton} onPress={handleToggleBoardPerspective}>
+            <Text style={styles.buttonText}>
+              {isBoardFlipped ? '♖ View as White' : '♜ View as Black'}
+            </Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.analyzeButton, isAnalyzing && styles.analyzeButtonDisabled]} 
+
+          <TouchableOpacity style={styles.actionButton} onPress={handleFlipDirection}>
+            <Text style={styles.buttonText}>
+              {isMovementReversed ? '↩ Restore Piece Direction' : '🔁 Flip Piece Direction'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.buttonRow, { marginTop: 12 }]}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.analyzeButton, isAnalyzing && styles.analyzeButtonDisabled]}
             onPress={handleAnalyze}
             disabled={isAnalyzing}
           >
@@ -995,6 +1206,13 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onSelect={handleSelectPiece}
+      />
+
+      <PromotionModal
+        visible={!!promotionContext}
+        color={promotionContext?.color ?? 'w'}
+        onSelect={handlePromotionSelect}
+        onCancel={handlePromotionCancel}
       />
 
     </SafeAreaView>

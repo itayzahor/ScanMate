@@ -4,11 +4,11 @@ import React, {useState} from 'react';
 import {View, Image, TouchableOpacity, Alert, ActivityIndicator, Text} from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 
-import {styles} from '../styles/ResultScreen.styles';
-import {uploadBoardPhoto} from '../services/api';
-import {normalizeFen} from '../utils/fen';
-import {ScreenHeader} from '../components/ScreenHeader';
-import {getBoardSize} from '../constants/layout';
+import {styles} from '../../ui/styles/ResultScreen.styles';
+import {uploadBoardPhoto} from '../../services/api';
+import {normalizeFen} from '../../shared/utils/fen';
+import {ScreenHeader} from '../../ui/components/ScreenHeader';
+import {getBoardSize} from '../../shared/constants/layout';
 
 const RESULT_TIPS = [
   'Confirm every square is visible edge to edge',
@@ -16,7 +16,7 @@ const RESULT_TIPS = [
 ];
 
 // Import RootStackParamList from App.tsx
-import type {RootStackParamList} from '../../App'; 
+import type {RootStackParamList} from '../../../App'; 
 
 // Define the Props for this screen
 type ResultScreenProps = NativeStackScreenProps<RootStackParamList, 'Result'>;
