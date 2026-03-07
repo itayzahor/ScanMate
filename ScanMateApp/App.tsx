@@ -12,13 +12,18 @@ import {Main} from './src/app/screens/Main';
 import {ScanBoard} from './src/app/screens/ScanBoard';
 import {ResultScreen} from './src/app/screens/ResultScreen';
 import AnalysisScreen from './src/app/screens/Analysis';
+import {ScanGame} from './src/app/screens/ScanGame';
+import {GameReview} from './src/app/screens/GameReview';
+import type {GameSnapshot} from './src/shared/types/game';
 
 // This defines all your screens and what parameters they take
 export type RootStackParamList = {
   Main: undefined; // Main screen takes no parameters
   ScanBoard: undefined; // ScanBoard screen takes no parameters
+  ScanGame: undefined;
   Result: { photoPath: string }; // Result screen takes a photoPath parameter
   Analysis: { fen: string }; // Analysis screen shows the resulting FEN
+  GameReview: { snapshots: GameSnapshot[] };
 };
 
 // This tells the navigator to use that "map"
@@ -80,12 +85,20 @@ const App = () => {
         }}
       />
       <Stack.Screen
+        name="ScanGame"
+        component={ScanGame}
+      />
+      <Stack.Screen
         name="Result"
         component={ResultScreen}
       />
       <Stack.Screen
         name="Analysis"
         component={AnalysisScreen}
+      />
+      <Stack.Screen
+        name="GameReview"
+        component={GameReview}
       />
     </>
   );

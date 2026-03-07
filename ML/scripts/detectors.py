@@ -37,7 +37,7 @@ def get_board_corners(image):
     Run corner model once with very low confidence,
     and return top 4 bbox centers as (x,y).
     """
-    results = CORNERS_MODEL.predict(image, imgsz=640, conf=0.01, iou=0.001)[0]
+    results = CORNERS_MODEL.predict(image, imgsz=640, conf=0.01, iou=0.001, verbose=False)[0]
     boxes = results.boxes
 
     if boxes is None or len(boxes) < 4:

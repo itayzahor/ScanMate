@@ -69,6 +69,9 @@ export const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
+  buttonRowSpacing: {
+    marginTop: 12,
+  },
   actionButton: {
     flex: 1,
     backgroundColor: '#333',

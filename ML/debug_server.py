@@ -8,6 +8,7 @@ import numpy as np
 import time
 import base64  
 from fastapi.responses import JSONResponse, HTMLResponse
+from typing import Optional
 
 from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CLASS_NAMES, IMAGE_SIZE
 # board_mapper.py (shim during transition)
@@ -15,9 +16,19 @@ from scripts.board_orientation import get_perspective_transform, orient_board_st
 from scripts.piece_mapping import map_pieces_to_board
 
 from scripts.fen_converter import convert_board_to_fen
+from scripts.gatekeeper import GatekeeperResult, validate_frame
+from scripts.logic_filter import LogicFilterDecision, apply_logic_filter
+from scripts.session_state import SessionState, get_session
 
 
 app = FastAPI(title="Chess Debug Server")
+PIECE_PERSISTENCE_FRAMES = 3
+
+
+class FrameRejectedError(Exception):
+    def __init__(self, result: GatekeeperResult) -> None:
+        super().__init__("Frame rejected by gatekeeper")
+        self.result = result
 
 # --- 2. ADD THIS NEW ENDPOINT ---
 @app.get("/", response_class=HTMLResponse)
@@ -122,7 +133,7 @@ def generate_all_debug_visuals(img_resized, warped_image, corners, piece_results
         return {}
 
 
-def run_full_pipeline(image_bytes):
+def run_full_pipeline(image_bytes, session: Optional[SessionState] = None):
     """
     Takes raw image bytes and runs the complete recognition pipeline.
     """
@@ -135,21 +146,26 @@ def run_full_pipeline(image_bytes):
     # 2. Resize the image ONCE
     img_resized = cv2.resize(img_original, (IMAGE_SIZE, IMAGE_SIZE))
 
-    # 3. Find Board Corners
+    # 3. Gatekeeper checks (blur + hand occlusion)
+    gatekeeper_result = validate_frame(img_resized)
+    if not gatekeeper_result.is_valid:
+        raise FrameRejectedError(gatekeeper_result)
+
+    # 4. Find Board Corners
     corners = get_board_corners(img_resized)
     if corners is None:
         raise ValueError("Could not find board corners.")
-    
-    # 4. Get Perspective Transform
+    print(f"[debug] detected corners: {corners}")
+    # 5. Get Perspective Transform
     homography = get_perspective_transform(corners, img_resized)
     
-    # 5. Get Warped Image (for debug)
+    # 6. Get Warped Image (for debug)
     warped_image = cv2.warpPerspective(img_resized, homography, (IMAGE_SIZE, IMAGE_SIZE))
     
-    # 6. Find All Pieces
+    # 7. Find All Pieces
     piece_boxes = get_piece_predictions(img_resized)
     
-    # 7. Map Pieces to Board
+    # 8. Map Pieces to Board
     board_state = map_pieces_to_board(
         piece_boxes,
         PIECE_CLASS_NAMES,
@@ -157,19 +173,25 @@ def run_full_pipeline(image_bytes):
     )
     print(board_state)
     board_state = orient_board_state_for_white(board_state)
+    if session:
+        board_state = session.blend_board(board_state, persistence_frames=PIECE_PERSISTENCE_FRAMES)
     
-    # 8. Convert to FEN
+    # 9. Convert to FEN & apply logic filter
     fen_string = convert_board_to_fen(board_state)
+    previous_fen = session.get_last_fen() if session else None
+    logic_decision = apply_logic_filter(fen_string, previous_fen)
+    if session:
+        session.update_last_fen(logic_decision.fen)
     
-    # 9. Generate ALL Debug Images
+    # 10. Generate ALL Debug Images
     debug_visuals = generate_all_debug_visuals(img_resized, warped_image, corners, piece_boxes, homography, IMAGE_SIZE)
     
-    return fen_string, board_state, debug_visuals
+    return board_state, logic_decision, gatekeeper_result, debug_visuals
 
 
 # --- 4. UPDATE THE API ENDPOINT ---
 @app.post("/recognize_board/")
-async def recognize_board_endpoint(file: UploadFile = File(...)):
+async def recognize_board_endpoint(file: UploadFile = File(...), session_id: Optional[str] = None):
     """
     The main API endpoint. Receives an image, runs the
     pipeline, and returns the FEN string + debug images.
@@ -178,22 +200,48 @@ async def recognize_board_endpoint(file: UploadFile = File(...)):
     
     try:
         image_bytes = await file.read()
+        session = get_session(session_id)
         
-        # --- This now returns 3 items ---
-        fen, board, debug_images = run_full_pipeline(image_bytes)
+        board, logic_decision, gatekeeper_result, debug_images = run_full_pipeline(image_bytes, session=session)
         
         end_time = time.time()
         processing_time = end_time - start_time
-        
-        # --- We add the debug_images to the response ---
+        diagnostics = {
+            "gatekeeper": {
+                "issues": gatekeeper_result.issues,
+                "blur_variance": round(gatekeeper_result.blur_variance, 2),
+                "hand_count": gatekeeper_result.hand_count,
+            },
+            "logic_filter": {
+                "accepted_candidate": logic_decision.accepted_candidate,
+                "matched_move": logic_decision.matched_move,
+                "fallback_reason": logic_decision.fallback_reason,
+            },
+        }
+
         return JSONResponse(content={
             "status": "success",
-            "fen": fen,
+            "fen": logic_decision.fen,
             "board_state": board,
             "processing_time_seconds": round(processing_time, 2),
-            "debug_images": debug_images  # <-- HERE
+            "diagnostics": diagnostics,
+            "debug_images": debug_images,
         })
         
+    except FrameRejectedError as exc:
+        result = exc.result
+        print(
+            f"[gatekeeper][debug] Rejected frame: issues={result.issues} blur={result.blur_variance:.1f} hand_count={result.hand_count}"
+        )
+        return JSONResponse(status_code=422, content={
+            "status": "rejected",
+            "message": "Frame rejected by gatekeeper.",
+            "issues": result.issues,
+            "gatekeeper": {
+                "blur_variance": round(result.blur_variance, 2),
+                "hand_count": result.hand_count,
+            },
+        })
     except Exception as e:
         print(f"ERROR: {e}") 
         return JSONResponse(status_code=400, content={

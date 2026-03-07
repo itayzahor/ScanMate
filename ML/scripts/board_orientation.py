@@ -57,6 +57,20 @@ def order_corners(points):
     return poly.astype(np.float32)
 
 
+def compute_horizontal_skew(points):
+    """Estimate horizontal skew: x-shift between top and bottom edge midpoints.
+
+    Returns a normalized value (roughly [-1,1]) where positive means the top
+    edge center is to the right of the bottom edge center. Useful as a hint to
+    bias square assignment under perspective.
+    """
+    ordered = order_corners(points)
+    tl, tr, br, bl = ordered
+    top_center = 0.5 * (tl + tr)
+    bottom_center = 0.5 * (bl + br)
+    width = max(np.linalg.norm(tr - tl), 1e-6)
+    return float((top_center[0] - bottom_center[0]) / width)
+
 
 def _a1_is_dark(rect, is_bgr=True):
     # 1) L channel (perceptual lightness)

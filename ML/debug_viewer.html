@@ -18,6 +18,7 @@
     
     <div id="results">
         <h2>Status: <span id="status">Idle</span></h2>
+        <p id="message"></p>
         <h3>FEN: <code id="fen">...</code></h3>
         <hr>
         <div id="imageContainer"></div>
@@ -27,6 +28,7 @@
         const imageInput = document.getElementById('imageInput');
         const uploadButton = document.getElementById('uploadButton');
         const statusEl = document.getElementById('status');
+        const messageEl = document.getElementById('message');
         const fenEl = document.getElementById('fen');
         const imageContainer = document.getElementById('imageContainer');
 
@@ -42,6 +44,7 @@
 
             statusEl.textContent = 'Processing...';
             fenEl.textContent = '...';
+            messageEl.textContent = '';
             imageContainer.innerHTML = '';
 
             try {
@@ -60,6 +63,8 @@
                 if (data.status === 'success') {
                     statusEl.textContent = 'Success!';
                     fenEl.textContent = data.fen;
+                    const issues = data.diagnostics?.gatekeeper?.issues || [];
+                    messageEl.textContent = issues.length ? `Gatekeeper warnings: ${issues.join(', ')}` : '';
                     
                     // Display all debug images
                     for (const [key, b64string] of Object.entries(data.debug_images)) {
@@ -73,13 +78,17 @@
                         imageContainer.appendChild(img);
                     }
                 } else {
-                    statusEl.textContent = 'Error';
-                    fenEl.textContent = data.message;
+                    statusEl.textContent = data.status === 'rejected' ? 'Rejected' : 'Error';
+                    fenEl.textContent = data.fen || '...';
+                    const issues = data.issues || [];
+                    const gatekeeperMsg = issues.length ? `Gatekeeper: ${issues.join(', ')}` : '';
+                    messageEl.textContent = gatekeeperMsg || (data.message || '');
                 }
 
             } catch (error) {
                 statusEl.textContent = 'Failed';
-                fenEl.textContent = error.message;
+                fenEl.textContent = '...';
+                messageEl.textContent = error.message;
             }
         });
     </script>

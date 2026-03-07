@@ -2,7 +2,7 @@ import {Platform} from 'react-native';
 
 // Set this to your laptop/desktop LAN IP when testing on a physical device.
 // Leave it as an empty string when using an Android emulator (which can hit 10.0.2.2).
-const LAN_HOST = '192.168.1.39';
+const LAN_HOST = '10.0.33.10';
 const LAN_BASE_URL = LAN_HOST ? `http://${LAN_HOST}:8000` : null;
 
 const DEFAULT_BASE_URL = Platform.select({

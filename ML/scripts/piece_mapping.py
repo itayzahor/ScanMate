@@ -1,12 +1,8 @@
 import math
+import cv2
 import numpy as np
 from scripts.detectors import IMAGE_SIZE
 
-def _apply_H_point(H, x, y):
-    p = np.array([x, y, 1.0], dtype=np.float32)
-    q = H @ p
-    w = q[2] if q[2] != 0 else 1e-9
-    return float(q[0] / w), float(q[1] / w)
 
 def map_pieces_to_board(piece_boxes, PIECE_CLASS_NAMES, homography):
     """
@@ -44,10 +40,16 @@ def map_pieces_to_board(piece_boxes, PIECE_CLASS_NAMES, homography):
 
     for box, score, cls_id in items:
         x1, y1, x2, y2 = box
+        
+        # Use footpoint: horizontal center, but ~25% up from bottom
+        # This better represents where the piece sits on the square
         cx = 0.5 * (x1 + x2)
-        cy = y2 - (y2 - y1) / 4 
-
-        ux, uy = _apply_H_point(H, cx, cy)  # project to rectified board
+        cy = y2 - (y2 - y1) / 4.0
+        
+        # Project footpoint through homography to rectified board
+        pt = np.array([[cx, cy]], dtype=np.float32).reshape(-1, 1, 2)
+        warped = cv2.perspectiveTransform(pt, H)
+        ux, uy = warped[0, 0]
 
         if not (0.0 <= ux < 640.0 and 0.0 <= uy < 640.0):
             continue  # out of board

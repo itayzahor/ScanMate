@@ -24,6 +24,8 @@ then on another terminal
 
 npx react-native run-android
 
+> ℹ️ The `/recognize_board/` gatekeeper (blur + hand detection) now depends on MediaPipe. Run `pip install -r requirements.txt` after pulling to ensure the `mediapipe` wheels are present; on Windows you may need Visual C++ Redistributable 2015 or newer for the native ops.
+
 
 # data
 
@@ -35,55 +37,6 @@ chess pieces detection dataset
 
 https://universe.roboflow.com/fhv/chess-pieces-2-6l8qq
 
-
-# Strategy to get better perosnalised boards 
-
-### Personalized Chess-Piece Recognition — Final Strategy
-1. Default mode: generic model
-
-App uses the pretrained YOLO model right away.
-
-If predictions are accurate → done (no friction).
-
-If confidence drops or errors > 2 → suggest a quick board scan.
-
-2. Board scan (user calibration)
-
-User takes 1–3 photos of the starting position.
-
-App detects board corners, flattens image, and uses the known FEN to auto-label all pieces.
-
-This generates ~32 labeled samples instantly (one per piece).
-
-3. Two-layer learning process
-
-A. On-device “train” (fast)
-
-Extract embeddings → build per-class prototypes.
-
-Use nearest-prototype classification for immediate, personalized results.
-
-B. Server-side “update” (background)
-
-Upload these crops and auto-labels.
-
-Fine-tune only YOLO’s final layers on the new samples (1–5 min).
-
-Improved global model benefits all users over time.
-
-4. Active learning while playing
-
-If the app is uncertain, show a one-tap correction (“Knight? Bishop?”).
-
-Store correction → refine prototypes and feed back to global training.
-
-✅ Result
-
-Smooth experience for most users (no scan needed).
-
-Personalized accuracy for unique boards when scanned.
-
-Continuous improvement of both local and global models.
 
 
 # download stockfish 
@@ -142,3 +95,30 @@ https://stockfishchess.org/download/
 
 Both endpoints are served by `python ML/server.py` (Uvicorn on `http://0.0.0.0:8000`).
 
+## Offline video replay + occlusion smoothing
+
+- `python ML/video_replay.py --video data/chessgame.mp4 --frame-step 2 --save-failures` replays a recording frame-by-frame, logs one JSON line per sampled frame (`runs/video_replay/<video>_log.jsonl`), and optionally dumps the raw frames for later inspection.
+- Add `--report-html chessgame_report.html` (optionally `--report-title "My Test"`) to emit an HTML report under `runs/video_replay/`. The report lists every sampled frame, embeds the captured image, and annotates the inferred move (difference between consecutive FEN snapshots).
+- Add `--clean-output` if you want to wipe the previous log, `successes/`, `failures/`, and report frame folders inside `--output-dir` before reprocessing the video.
+- `python ML/replay_viewer.py --log runs/video_replay/chessgame_log.jsonl --frames runs/video_replay/report_frames --port 8050` launches a FastAPI viewer at `http://127.0.0.1:8050/` that streams the same frames/moves via an endpoint so you can browse them live. (Instead of CLI flags you can also set `REPLAY_LOG_PATH`, `REPLAY_FRAMES_DIR`, and `REPLAY_TITLE` env vars and run `uvicorn replay_viewer:app`).
+- The replay harness and both FastAPI servers now keep lightweight per-session history for piece placement (each mapped square persists for three frames unless a new detection contradicts it), but board corners are recalculated per photo so occluded corners once again fail fast.
+- Use `/recognize_board/` for single-shot captures (no gatekeeper, no session state) and `/recognize_board_session/` when you need the full smoothing + gatekeeper flow. The session endpoint requires a `session_id` query parameter (pick any string, e.g. `?session_id=debug`).
+- Session-aware calls still seed their history from the standard starting FEN, so the first accepted frame must be a legal move from that baseline. Stream a photo of the untouched opening position (or create a session with a custom `starting_fen`) before jumping into a mid-game, otherwise the logic filter will keep falling back to the initial board.
+- Manage capture lifecycles with the new session endpoints:
+	- `POST /sessions/` with an optional `session_id`, custom `starting_fen`, and `persistence_frames` lets you preconfigure smoothing before streaming frames.
+	- `GET /sessions/` lists active sessions plus timestamps, while `GET /sessions/{session_id}/` returns a single record.
+	- `DELETE /sessions/{session_id}/` clears the smoothing cache once a game finishes so idle sessions do not accumulate forever.
+	- `/recognize_board_session/` will still lazily create a session on first use, but explicit creation is required if you want non-default settings for mid-game resumes.
+
+
+The flow is now:
+
+Frame N	Frame N+1	Result
+Diff triggers → move found	No diff, but YOLO still sees same move	✅ Confirmed
+Diff triggers → move found	No diff, YOLO disagrees	Idle counter +1, discard after 3
+Diff triggers → move A found	Diff triggers → different move B	Pending replaced with B
+Diff triggers → flicker move	No diff, YOLO no longer sees it	Idle → discarded
+
+python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --skip-gatekeeper --start-frame 4500 --starting-fen "r1bqk2r/p4ppp/2pp4/2b1p3/8/3P1N2/PPP2PPP/R1BQK2R"
+
+python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --skip-gatekeeper --start-frame 20000 --starting-fen "r5k1/p4pp1/7p/2p5/3r4/P7/5RPP/7K"

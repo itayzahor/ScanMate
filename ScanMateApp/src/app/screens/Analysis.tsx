@@ -194,7 +194,7 @@ const getBoardAndPiece = (fen: string, square: Square) => {
 };
 
 const collectSlidingMoves = (
-  moves: CandidateMove[],
+  moves: LogicMove[],
   board: Array<Array<string | null>>,
   start: { row: number; col: number },
   deltas: Array<[number, number]>,
@@ -658,6 +658,46 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
     [fen, isMovementReversed],
   );
 
+  const runOnNextFrame = useCallback((fn: () => void) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(fn);
+      return;
+    }
+    setTimeout(fn, 0);
+  }, []);
+
+  const resetHighlights = useCallback(() => {
+    chessboardRef.current?.resetAllHighlightedSquares();
+  }, []);
+
+  const highlightSquare = useCallback(
+    (square: Square, color: string) => {
+      runOnNextFrame(() => {
+        chessboardRef.current?.highlight({ square, color });
+      });
+    },
+    [runOnNextFrame],
+  );
+
+  const applyFenUpdate = useCallback((nextFen: string) => {
+    const normalized = normalizeFen(nextFen);
+    setFen(normalized);
+    chessboardRef.current?.resetBoard(normalized);
+  }, []);
+
+  const clearAnalysisState = useCallback(() => {
+    setAnalysisResult(null);
+    setAnalysisError(null);
+    setAnalysisBaseFen(null);
+    setPvIndex(0);
+  }, []);
+
+  const clearMoveSelection = useCallback(() => {
+    selectedMoveFromRef.current = null;
+    candidateMovesRef.current = [];
+    resetHighlights();
+  }, [resetHighlights]);
+
   const executeCandidateMove = useCallback(
     (move: CandidateMove, promotionOverride?: PieceSymbol) => {
       const resolvedPromotion = promotionOverride ?? move.promotion;
@@ -705,46 +745,6 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
       transformFenForMovement,
     ],
   );
-
-  const runOnNextFrame = useCallback((fn: () => void) => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(fn);
-      return;
-    }
-    setTimeout(fn, 0);
-  }, []);
-
-  const resetHighlights = useCallback(() => {
-    chessboardRef.current?.resetAllHighlightedSquares();
-  }, []);
-
-  const highlightSquare = useCallback(
-    (square: Square, color: string) => {
-      runOnNextFrame(() => {
-        chessboardRef.current?.highlight({ square, color });
-      });
-    },
-    [runOnNextFrame],
-  );
-
-  const clearMoveSelection = useCallback(() => {
-    selectedMoveFromRef.current = null;
-    candidateMovesRef.current = [];
-    resetHighlights();
-  }, [resetHighlights]);
-
-  const applyFenUpdate = useCallback((nextFen: string) => {
-    const normalized = normalizeFen(nextFen);
-    setFen(normalized);
-    chessboardRef.current?.resetBoard(normalized);
-  }, []);
-
-  const clearAnalysisState = useCallback(() => {
-    setAnalysisResult(null);
-    setAnalysisError(null);
-    setAnalysisBaseFen(null);
-    setPvIndex(0);
-  }, []);
 
   useEffect(() => {
     clearMoveSelection();
@@ -890,17 +890,21 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
     [isBoardFlipped],
   );
   const renderChessPiece = useCallback(
-    (id: `${Color}${PieceSymbol}`) => (
-      <Image
-        source={PIECE_ASSETS[id]}
-        style={{
-          width: boardSize / 8,
-          height: boardSize / 8,
-          transform: [{ rotate: isBoardFlipped ? '180deg' : '0deg' }],
-        }}
-        resizeMode="contain"
-      />
-    ),
+    (piece: `${string}${PieceSymbol}`) => {
+      const assetKey = (piece as keyof typeof PIECE_ASSETS) ?? 'wp';
+      const source = PIECE_ASSETS[assetKey] ?? PIECE_ASSETS.wp;
+      return (
+        <Image
+          source={source}
+          style={{
+            width: boardSize / 8,
+            height: boardSize / 8,
+            transform: [{ rotate: isBoardFlipped ? '180deg' : '0deg' }],
+          }}
+          resizeMode="contain"
+        />
+      );
+    },
     [boardSize, isBoardFlipped],
   );
 
@@ -1124,7 +1128,7 @@ export default function AnalysisScreen({ route, navigation }: AnalysisScreenProp
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.buttonRow, { marginTop: 12 }]}>
+        <View style={[styles.buttonRow, styles.buttonRowSpacing]}>
           <TouchableOpacity
             style={[styles.actionButton, styles.analyzeButton, isAnalyzing && styles.analyzeButtonDisabled]}
             onPress={handleAnalyze}

@@ -20,6 +20,10 @@ export const Main = ({navigation}: Props) => {
     navigation.navigate('Analysis', {fen: STARTING_FEN});
   };
 
+  const onRecordGamePress = () => {
+    navigation.navigate('ScanGame');
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
@@ -33,6 +37,16 @@ export const Main = ({navigation}: Props) => {
           <View style={styles.buttonTextWrapper}>
             <Text style={styles.buttonTitle}>Scan Chessboard</Text>
             <Text style={styles.buttonSubtitle}>Capture a board and get instant recognition</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.secondaryButton} onPress={onRecordGamePress} activeOpacity={0.85}>
+          <View style={styles.buttonIconContainer}>
+            <Text style={styles.buttonIcon}>🎥</Text>
+          </View>
+          <View style={styles.buttonTextWrapper}>
+            <Text style={styles.buttonTitle}>Record Full Game</Text>
+            <Text style={styles.buttonSubtitle}>Hands-free capture with automatic move timeline</Text>
           </View>
         </TouchableOpacity>
 
