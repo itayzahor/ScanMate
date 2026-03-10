@@ -41,7 +41,6 @@ def get_board_corners(image):
     boxes = results.boxes
 
     if boxes is None or len(boxes) < 4:
-        print("ERROR: Not enough corners detected (need 4).")
         return None
 
     xywh = boxes.xywh.cpu().numpy()

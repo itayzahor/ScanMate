@@ -119,6 +119,6 @@ Diff triggers → move found	No diff, YOLO disagrees	Idle counter +1, discard af
 Diff triggers → move A found	Diff triggers → different move B	Pending replaced with B
 Diff triggers → flicker move	No diff, YOLO no longer sees it	Idle → discarded
 
-python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --skip-gatekeeper --start-frame 4500 --starting-fen "r1bqk2r/p4ppp/2pp4/2b1p3/8/3P1N2/PPP2PPP/R1BQK2R"
+python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --start-frame 4500 --starting-fen "r1bqk2r/p4ppp/2pp4/2b1p3/8/3P1N2/PPP2PPP/R1BQK2R"
 
-python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --skip-gatekeeper --start-frame 20000 --starting-fen "r5k1/p4pp1/7p/2p5/3r4/P7/5RPP/7K"
+python video_viewer.py --video data/chessgame.mp4 --frame-step 25 --start-frame 20000 --starting-fen "r5k1/p4pp1/7p/2p5/3r4/P7/5RPP/7K"

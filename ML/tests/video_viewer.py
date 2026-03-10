@@ -8,10 +8,6 @@ This script plays back a recorded chess video with real-time visual overlays sho
 
 Controls:
 - SPACE: Pause/Resume
-- RIGHT ARROW: Step forward one frame (when paused)
-- LEFT ARROW: Restart from beginning
-- +/=: Increase playback speed
-- -/_: Decrease playback speed
 - Q or ESC: Quit
 - S: Save current frame as debug image
 """
@@ -27,43 +23,16 @@ import numpy as np
 import chess
 
 from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CLASS_NAMES
-from scripts.board_orientation import compute_horizontal_skew, get_perspective_transform, orient_board_state_for_white
+from scripts.board_orientation import get_perspective_transform, orient_board_state_for_white
 from scripts.piece_mapping import map_pieces_to_board
-from scripts.fen_converter import convert_board_to_fen
 from scripts.gatekeeper import validate_frame
 from scripts.session_state import DEFAULT_STARTING_FEN, SessionState
-from scripts.logic_filter import apply_logic_filter
-from scripts.change_tracker import (
-    ChessMoveDetector,
-    warp_board_to_grid,
-    resolve_move_from_changes,
-)
+from scripts.board_mapper import warp_board_to_grid
+from scripts.change_tracker import resolve_move_from_changes
 
 
 FILES = "abcdefgh"
-BOARD_WARP_SIZE = 800
 CHESS_BOARD_SIZE = 400  # Size of the visual chess board display
-PIECE_PERSISTENCE_FRAMES = 3  # Smooth YOLO detection noise by keeping pieces for 3 frames
-
-
-def fen_to_board_map(fen: str) -> dict[str, str]:
-    """Map FEN piece placement into square->piece dict (placement field only)."""
-    board: dict[str, str] = {}
-    ranks = fen.split("/")
-    if len(ranks) != 8:
-        return board
-    for rank_idx, row in enumerate(ranks):
-        file_idx = 0
-        for char in row:
-            if char.isdigit():
-                file_idx += int(char)
-                continue
-            if file_idx >= 8:
-                break
-            square = f"{FILES[file_idx]}{8 - rank_idx}"
-            board[square] = char
-            file_idx += 1
-    return board
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,11 +62,6 @@ def parse_args() -> argparse.Namespace:
         help="Start from this frame index.",
     )
     parser.add_argument(
-        "--skip-gatekeeper",
-        action="store_true",
-        help="Bypass blur/hand checks for faster processing.",
-    )
-    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("runs/video_viewer"),
@@ -122,52 +86,6 @@ def square_to_board_coords(square_name: str) -> tuple[int, int]:
     col = 7 - file_idx  # 0-7, col 0 is file h (rightmost)
     
     return (row, col)
-
-
-def draw_square_overlay(warped_board: np.ndarray, square_name: str, color: tuple[int, int, int], alpha: float = 0.4) -> np.ndarray:
-    """Draw a semi-transparent colored overlay on a square.
-    
-    Args:
-        warped_board: Warped board image (800x800)
-        square_name: Square to highlight (e.g., 'e2')
-        color: BGR color tuple
-        alpha: Transparency (0=invisible, 1=opaque)
-    
-    Returns:
-        Image with overlay
-    """
-    overlay = warped_board.copy()
-    row, col = square_to_board_coords(square_name)
-    
-    square_size = BOARD_WARP_SIZE // 8
-    x1 = col * square_size
-    y1 = row * square_size
-    x2 = x1 + square_size
-    y2 = y1 + square_size
-    
-    cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
-    return cv2.addWeighted(overlay, alpha, warped_board, 1 - alpha, 0)
-
-
-def draw_move_annotations(warped_board: np.ndarray, from_square: Optional[str], to_square: Optional[str]) -> np.ndarray:
-    """Draw colored overlays for from/to squares.
-    
-    Args:
-        warped_board: Warped board image
-        from_square: Source square (drawn in red)
-        to_square: Destination square (drawn in green)
-    
-    Returns:
-        Annotated image
-    """
-    result = warped_board.copy()
-    
-    if from_square:
-        result = draw_square_overlay(result, from_square, (0, 0, 255), alpha=0.3)  # Red
-    if to_square:
-        result = draw_square_overlay(result, to_square, (0, 255, 0), alpha=0.3)  # Green
-    
-    return result
 
 
 def draw_square_on_original_frame(frame: np.ndarray, square_name: str, h_matrix: np.ndarray, color: tuple[int, int, int], alpha: float = 0.4) -> np.ndarray:
@@ -478,19 +396,16 @@ def main() -> None:
         raise RuntimeError(f"Could not open video: {video_path}")
     
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
-    frames_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     if args.start_frame > 0:
         cap.set(cv2.CAP_PROP_POS_FRAMES, args.start_frame)
     
     print("=== Chess Video Viewer ===")
     print(f"Video: {video_path}")
-    print(f"Controls: SPACE=pause, +/-=speed, S=snapshot, Q=quit\\n")
+    print(f"Controls: SPACE=pause, S=snapshot, Q=quit\\n")
     
     paused = False
     frame_index = args.start_frame - 1  # Align sampling with replay: first processed frame is start_frame
-    gatekeeper_enabled = not args.skip_gatekeeper
-    playback_speed = 1.0
     
     last_move_from: Optional[str] = None
     last_move_to: Optional[str] = None
@@ -500,22 +415,18 @@ def main() -> None:
     # Pending move confirmation: hold a candidate for 1 extra frame before committing.
     # This filters YOLO flicker — real moves persist across frames, flicker doesn't.
     pending_move_uci: Optional[str] = None
-    pending_resolution: Optional[object] = None  # MoveResolution
     pending_san: Optional[str] = None
     pending_idle_frames: int = 0  # detection frames with no move since pending was set
     PENDING_IDLE_LIMIT = 3  # discard pending after this many idle detection frames
 
-    status_message: Optional[str] = None
     banner_flag: str = "SUCCESS"
     banner_flag_color: tuple[int, int, int] = (0, 180, 0)  # green
     last_move_display: str = "—"
 
     last_h_matrix: Optional[np.ndarray] = None
     last_corners: Optional[np.ndarray] = None
-    last_detection_mode = "piece_detection"
     last_processing_ms = 0.0
     last_move_uci: Optional[str] = None
-    last_move_san: Optional[str] = None
     last_change_ready: Optional[bool] = None
     last_change_triggered: Optional[int] = None
     last_piece_count: int = 0
@@ -532,7 +443,6 @@ def main() -> None:
         
         # Process frame
         try:
-            status_message = None  # reset per-frame banner
             h_matrix: Optional[np.ndarray] = None
             start_time = time.perf_counter()
             
@@ -554,8 +464,8 @@ def main() -> None:
                     )
                 chess_board_vis = draw_chess_board(current_fen, CHESS_BOARD_SIZE)
                 info_lines = [
-                    f"Frame {frame_index} | {last_processing_ms:.1f}ms | Speed: {playback_speed:.1f}x",
-                    f"Move: {last_move_san or last_move_uci or 'None'} ({last_detection_mode})",
+                    f"Frame {frame_index} | {last_processing_ms:.1f}ms",
+                    f"Move: {last_move_uci or 'None'},",
                     f"FEN: {current_fen[:50]}...",
                     f"Diff: ready={last_change_ready}, triggered={last_change_triggered}",
                     f"Pieces: {last_piece_count} detected",
@@ -566,69 +476,57 @@ def main() -> None:
                 cv2.imshow("Chess Video Viewer", display_frame)
                 cv2.imshow("Chess Board", chess_board_vis)
 
-                natural_delay = int(1000 / fps) if fps > 0 else 40
-                wait_time = max(1, int(natural_delay / playback_speed)) if not paused else 0
+                wait_time = max(1, int(1000 / fps)) if not paused else 0
                 key = cv2.waitKey(wait_time)
                 if key == ord('q') or key == 27:
                     break
                 elif key == ord(' '):
                     paused = not paused
-                elif key == 83 and paused:
-                    paused = False
-                    continue
-                elif key == 81:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, args.start_frame)
-                    frame_index = args.start_frame - 1
-                    session = SessionState(starting_fen=args.starting_fen)
-                    current_fen = args.starting_fen
-                    last_move_from = None
-                    last_move_to = None
-                    last_move_uci = None
-                    last_move_san = None
-                    last_move_display = "\u2014"
-                    banner_flag = "SUCCESS"
-                    banner_flag_color = (0, 180, 0)
-                    expected_turn = None
-                    pending_move_uci = None
-                    pending_resolution = None
-                    pending_san = None
-                    pending_idle_frames = 0
-                elif key == ord('+') or key == ord('='):
-                    playback_speed = min(10.0, playback_speed + 0.25)
-                elif key == ord('-') or key == ord('_'):
-                    playback_speed = max(0.25, playback_speed - 0.25)
                 continue
             
             # === Detection frame: run the full pipeline ===
 
             # Gatekeeper check - show video always; only skip processing if frame is invalid
-            gatekeeper_valid = True
-            if gatekeeper_enabled:
-                gatekeeper_result = validate_frame(img_resized)
-                gatekeeper_valid = gatekeeper_result.is_valid
-                issues_list = gatekeeper_result.issues or []
+            gatekeeper_result = validate_frame(img_resized)
+            gatekeeper_valid = gatekeeper_result.is_valid
+            issues_list = gatekeeper_result.issues or []
 
-                if not gatekeeper_valid:
-                    status_message = f"BLOCKED: {', '.join(issues_list).upper()}" if issues_list else "BLOCKED"
-                    label = ', '.join(issues_list).upper() if issues_list else "BLOCKED"
-                    banner_flag = f"HAND" if "hand" in label.lower() else label
-                    banner_flag_color = (0, 0, 255)  # red
-                else:
-                    # Passing gatekeeper clears any prior block banner
-                    status_message = None
-                    banner_flag = "SUCCESS"
-                    banner_flag_color = (0, 180, 0)  # green
+            if not gatekeeper_valid:
+                label = ', '.join(issues_list).upper() if issues_list else "BLOCKED"
+                banner_flag = "HAND" if "hand" in label.lower() else label
+                banner_flag_color = (0, 0, 255)  # red
+
+                display_frame = draw_status_banner(img_resized, banner_flag, banner_flag_color, last_move_display)
+                info_lines = [
+                    f"Frame {frame_index}",
+                    f"Status: {banner_flag}",
+                    f"FEN: {current_fen[:40]}...",
+                ]
+                display_frame = draw_info_panel(display_frame, info_lines)
+                cv2.imshow("Chess Video Viewer", display_frame)
+                chess_board_vis = draw_chess_board(current_fen, CHESS_BOARD_SIZE)
+                cv2.imshow("Chess Board", chess_board_vis)
+
+                key = cv2.waitKey(1 if not paused else 0)
+                if key == ord('q') or key == 27:
+                    break
+                elif key == ord(' '):
+                    paused = not paused
+                continue
+
+            # Passing gatekeeper clears any prior block banner
+            banner_flag = "SUCCESS"
+            banner_flag_color = (0, 180, 0)  # green
             
-            # Detect corners (only after gatekeeper passes)
+            # Detect corners
             corners = get_board_corners(img_resized)
             if corners is None or len(corners) != 4:
-                status_message = "NO BOARD DETECTED"
                 banner_flag = "NO BOARD"
                 banner_flag_color = (0, 165, 255)  # orange
                 display_frame = draw_status_banner(img_resized, banner_flag, banner_flag_color, last_move_display)
                 
                 info_lines = [
-                    f"Frame {frame_index} | Speed: {playback_speed:.1f}x",
+                    f"Frame {frame_index}",
                     "Status: Waiting for board in view...",
                     f"FEN: {current_fen[:40]}...",
                 ]
@@ -640,89 +538,50 @@ def main() -> None:
                     break
                 elif key == ord(' '):
                     paused = not paused
-                elif key == 83 and paused:
-                    paused = False
-                elif key == ord('+') or key == ord('='):
-                    playback_speed = min(10.0, playback_speed + 0.25)
-                elif key == ord('-') or key == ord('_'):
-                    playback_speed = max(0.25, playback_speed - 0.25)
                 continue
             
             change_detection = None
-            candidate_fen = current_fen
             move_uci: Optional[str] = None
-            move_san: Optional[str] = None
-            detection_mode = "piece_detection"
             current_piece_squares: set[str] = set()
 
-            if gatekeeper_valid:
-                # Compute perspective transform and warp (warp only for diff tracking)
-                skew = compute_horizontal_skew(corners)
-                h_matrix = get_perspective_transform(corners, img_resized)
-                last_h_matrix = h_matrix
-                last_corners = corners
-                warped_board = warp_board_to_grid(img_resized, h_matrix, 640)  # Keep 640 like replay
-                
-                # Detect pieces on the original resized frame (parity with video_replay)
-                piece_predictions = get_piece_predictions(img_resized)
-                board_state = map_pieces_to_board(piece_predictions, PIECE_CLASS_NAMES, h_matrix)
-                board_state_oriented_raw = orient_board_state_for_white(board_state)
-                
-                # Change detection uses the warped board
-                change_detection = session.detect_square_changes(warped_board)
-                
-                # Extract current piece squares from RAW board (before smoothing)
-                if board_state_oriented_raw:
-                    for rank_idx, rank in enumerate(board_state_oriented_raw):
-                        for file_idx, piece in enumerate(rank):
-                            if piece:
-                                square = chr(ord('a') + file_idx) + str(8 - rank_idx)
-                                current_piece_squares.add(square)
-                
-                # Blend after extraction to smooth display / FEN noise
-                board_state_oriented = session.blend_board(
-                    board_state_oriented_raw,
-                    persistence_frames=PIECE_PERSISTENCE_FRAMES,
-                )
-                
-                # Convert blended board to FEN for display
-                candidate_fen = convert_board_to_fen(board_state_oriented)
+            # Compute perspective transform and warp (warp only for diff tracking)
+            h_matrix = get_perspective_transform(corners, img_resized)
+            last_h_matrix = h_matrix
+            last_corners = corners
+            warped_board = warp_board_to_grid(img_resized, h_matrix, 640)  # Keep 640 like replay
+            
+            # Detect pieces on the original resized frame (parity with video_replay)
+            piece_predictions = get_piece_predictions(img_resized)
+            board_state = map_pieces_to_board(piece_predictions, PIECE_CLASS_NAMES, h_matrix)
+            board_state_oriented_raw = orient_board_state_for_white(board_state)
+            
+            # Change detection uses the warped board
+            change_detection = session.detect_square_changes(warped_board)
+            
+            # Extract current piece squares from RAW board (before smoothing)
+            if board_state_oriented_raw:
+                for rank_idx, rank in enumerate(board_state_oriented_raw):
+                    for file_idx, piece in enumerate(rank):
+                        if piece:
+                            square = chr(ord('a') + file_idx) + str(8 - rank_idx)
+                            current_piece_squares.add(square)
             
             # Try to resolve a move - ONLY if we processed and have previous FEN and diff detection
             previous_fen = session.get_last_fen()
-            if gatekeeper_valid and previous_fen and change_detection:
-                previous_piece_squares = session.get_previous_piece_squares()
-                if not previous_piece_squares and previous_fen:
-                    ranks = previous_fen.split("/")
-                    previous_piece_squares = set()
-                    for rank_idx, row in enumerate(ranks):
-                        file_idx = 0
-                        for char in row:
-                            if char.isdigit():
-                                file_idx += int(char)
-                                continue
-                            if file_idx >= 8:
-                                break
-                            square = f"{FILES[file_idx]}{8 - rank_idx}"
-                            previous_piece_squares.add(square)
-                            file_idx += 1
-                    session.set_piece_squares(previous_piece_squares)
+            if previous_fen and change_detection:
                 
                 if not change_detection.ready:
-                    detection_mode = "warming_up"
+                    pass  # warming up
                 elif change_detection.triggered_count == 0 and pending_move_uci is None:
-                    detection_mode = "no_changes"
+                    pass  # no changes
                 elif change_detection.triggered_count == 0 and pending_move_uci is not None:
                     # No diff activity but we have a pending move to confirm.
                     # Re-run resolver: authoritative FEN hasn't changed, so YOLO
                     # should still see the same missing/new pattern → same move → confirm.
-                    detection_mode = "pending_confirm"
                     move_resolution = resolve_move_from_changes(
                         previous_fen=previous_fen,
                         detection=change_detection,
                         current_piece_squares=current_piece_squares,
-                        skew=skew,
-                        previous_piece_squares=previous_piece_squares,
                         expected_turn=expected_turn,
                     )
                     if move_resolution and move_resolution.uci == pending_move_uci:
@@ -735,11 +594,9 @@ def main() -> None:
                         banner_flag_color = (0, 180, 0)
                         expected_turn = chess.BLACK if move_resolution.turn == chess.WHITE else chess.WHITE
                         print(f"Frame {frame_index}: {last_move_display}")
-                        status_message = f"MOVE: {last_move_display}"
                         move_uci = pending_move_uci
                         session.set_piece_squares(current_piece_squares)
                         pending_move_uci = None
-                        pending_resolution = None
                         pending_san = None
                         pending_idle_frames = 0
                     else:
@@ -747,7 +604,6 @@ def main() -> None:
                         pending_idle_frames += 1
                         if pending_idle_frames >= PENDING_IDLE_LIMIT:
                             pending_move_uci = None
-                            pending_resolution = None
                             pending_san = None
                             pending_idle_frames = 0
                 else:
@@ -757,117 +613,60 @@ def main() -> None:
                         previous_fen=previous_fen,
                         detection=change_detection,
                         current_piece_squares=current_piece_squares,
-                        skew=skew,
-                        previous_piece_squares=previous_piece_squares,
                         expected_turn=expected_turn,
                     )
                     if move_resolution:
-                        session.set_piece_squares(current_piece_squares)
                         move_uci = move_resolution.uci
-                        detection_mode = "diff_tracking"
-                        logic_decision = apply_logic_filter(
-                            candidate_fen=move_resolution.fen,
-                            previous_fen=previous_fen,
-                        )
-                        if logic_decision.accepted_candidate:
-                            # Compute SAN for display
-                            try:
-                                turn_char = 'w' if move_resolution.turn == chess.WHITE else 'b'
-                                board = chess.Board(f"{previous_fen} {turn_char} - - 0 1")
-                                candidate_san = board.san(move_resolution.move)
-                            except:
-                                candidate_san = move_uci
+                        # Compute SAN for display
+                        try:
+                            turn_char = 'w' if move_resolution.turn == chess.WHITE else 'b'
+                            board = chess.Board(f"{previous_fen} {turn_char} - - 0 1")
+                            candidate_san = board.san(move_resolution.move)
+                        except:
+                            candidate_san = move_uci
 
-                            # --- Pending move confirmation ---
-                            if pending_move_uci and move_uci == pending_move_uci:
-                                # Same move seen again → CONFIRM
-                                current_fen = move_resolution.fen
-                                last_move_from = move_uci[:2] if move_uci else None
-                                last_move_to = move_uci[2:4] if move_uci else None
-                                last_move_display = candidate_san or move_uci or "—"
-                                banner_flag = "MOVE DETECTED"
-                                banner_flag_color = (0, 180, 0)  # green
-                                expected_turn = chess.BLACK if move_resolution.turn == chess.WHITE else chess.WHITE
-                                print(f"Frame {frame_index}: {last_move_display}")
-                                status_message = f"MOVE: {last_move_display}"
-                                pending_move_uci = None
-                                pending_resolution = None
-                                pending_san = None
-                                pending_idle_frames = 0
-                            else:
-                                # New or different move → store as pending
-                                pending_move_uci = move_uci
-                                pending_resolution = move_resolution
-                                pending_san = candidate_san
-                                pending_idle_frames = 0
-                                banner_flag = "PENDING"
-                                banner_flag_color = (0, 200, 255)  # yellow/orange
-                                last_move_display = f"{candidate_san}?"
-                                move_uci = None  # don't commit yet
-                                move_san = None
+                        # --- Pending move confirmation ---
+                        if pending_move_uci and move_uci == pending_move_uci:
+                            # Same move seen again → CONFIRM
+                            session.set_piece_squares(current_piece_squares)
+                            current_fen = move_resolution.fen
+                            last_move_from = move_uci[:2] if move_uci else None
+                            last_move_to = move_uci[2:4] if move_uci else None
+                            last_move_display = candidate_san or move_uci or "—"
+                            banner_flag = "MOVE DETECTED"
+                            banner_flag_color = (0, 180, 0)  # green
+                            expected_turn = chess.BLACK if move_resolution.turn == chess.WHITE else chess.WHITE
+                            print(f"Frame {frame_index}: {last_move_display}")
+                            pending_move_uci = None
+                            pending_san = None
+                            pending_idle_frames = 0
                         else:
-                            detection_mode = "rejected"
-                            move_uci = None
-                            move_san = None
+                            # New or different move → store as pending
+                            pending_move_uci = move_uci
+                            pending_san = candidate_san
+                            pending_idle_frames = 0
+                            banner_flag = "PENDING"
+                            banner_flag_color = (0, 200, 255)  # yellow/orange
+                            last_move_display = f"{candidate_san}?"
+                            move_uci = None  # don't commit yet
                     else:
                         # No move detected this frame — track idle for pending
                         if pending_move_uci is not None:
                             pending_idle_frames += 1
                             if pending_idle_frames >= PENDING_IDLE_LIMIT:
                                 pending_move_uci = None
-                                pending_resolution = None
                                 pending_san = None
                                 pending_idle_frames = 0
 
-            # If no move was accepted, reconcile YOLO/blended FEN with diff support and logic filter
-            if gatekeeper_valid and not move_uci and candidate_fen:
-                # Validate YOLO FEN changes against diff evidence (replay parity)
-                if previous_fen and candidate_fen != previous_fen and change_detection and change_detection.ready:
-                    prev_map = fen_to_board_map(previous_fen)
-                    curr_map = fen_to_board_map(candidate_fen)
-                    changed_squares = {
-                        sq for sq in (set(prev_map.keys()) | set(curr_map.keys()))
-                        if prev_map.get(sq) != curr_map.get(sq)
-                    }
-                    change_lookup = {c.square: c for c in change_detection.triggered}
-
-                    has_support = True
-                    added_squares = {sq for sq in changed_squares if not prev_map.get(sq) and curr_map.get(sq)}
-                    if added_squares:
-                        supported_additions = 0
-                        for sq in added_squares:
-                            if sq in change_lookup and change_lookup[sq].magnitude >= 1.1:
-                                supported_additions += 1
-                        if supported_additions == 0:
-                            has_support = False
-                    elif changed_squares and not any(
-                        sq in change_lookup and change_lookup[sq].magnitude >= 1.5 for sq in changed_squares
-                    ):
-                        has_support = False
-
-                    if changed_squares and not has_support:
-                        candidate_fen = previous_fen
-
-                logic_decision = apply_logic_filter(candidate_fen, previous_fen)
-                current_fen = logic_decision.fen
-                if logic_decision.matched_move:
-                    move_uci = logic_decision.matched_move
-                    last_move_from = move_uci[:2]
-                    last_move_to = move_uci[2:4]
-                    move_san = move_uci
-
-            if gatekeeper_valid and current_fen:
+            if current_fen:
                 session.update_last_fen(current_fen)
 
             # Cache latest info for rendering skipped frames
-            if gatekeeper_valid:
-                last_detection_mode = detection_mode
-                last_processing_ms = (time.perf_counter() - start_time) * 1000
-                last_move_uci = move_uci or last_move_uci
-                last_move_san = move_san or last_move_san
-                last_change_ready = change_detection.ready if change_detection else None
-                last_change_triggered = change_detection.triggered_count if change_detection else None
-                last_piece_count = len(current_piece_squares)
+            last_processing_ms = (time.perf_counter() - start_time) * 1000
+            last_move_uci = move_uci or last_move_uci
+            last_change_ready = change_detection.ready if change_detection else None
+            last_change_triggered = change_detection.triggered_count if change_detection else None
+            last_piece_count = len(current_piece_squares)
             
             # Draw annotations when processing this frame
             annotated_frame = img_resized.copy()
@@ -877,8 +676,8 @@ def main() -> None:
             chess_board_vis = draw_chess_board(current_fen, CHESS_BOARD_SIZE)
 
             info_lines = [
-                f"Frame {frame_index} | {last_processing_ms:.1f}ms | Speed: {playback_speed:.1f}x",
-                f"Move: {move_san or move_uci or 'None'} ({detection_mode})",
+                f"Frame {frame_index} | {last_processing_ms:.1f}ms",
+                f"Move: {move_uci or 'None'},",
                 f"FEN: {current_fen[:50]}...",
                 f"Diff: ready={change_detection.ready if change_detection else None}, triggered={change_detection.triggered_count if change_detection else None}",
                 f"Pieces: {len(current_piece_squares)} detected",
@@ -905,33 +704,16 @@ def main() -> None:
         cv2.imshow("Chess Board", chess_board_vis)
 
         # Handle keyboard input
-        natural_delay = int(1000 / fps) if fps > 0 else 40
-        wait_time = max(1, int(natural_delay / playback_speed)) if not paused else 0
+        wait_time = max(1, int(1000 / fps)) if not paused else 0
         key = cv2.waitKey(wait_time)
         
         if key == ord('q') or key == 27:
             break
         elif key == ord(' '):
             paused = not paused
-        elif key == 83 and paused:
-            paused = False
-            continue
-        elif key == 81:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, args.start_frame)
-            frame_index = args.start_frame - 1
-            session = SessionState(starting_fen=args.starting_fen)
-            current_fen = args.starting_fen
-            last_move_from = None
-            last_move_to = None
-            last_move_uci = None
-            last_move_san = None
         elif key == ord('s') or key == ord('S'):
             snapshot_path = output_dir / f"snapshot_frame_{frame_index:06d}.jpg"
             cv2.imwrite(str(snapshot_path), display_frame)
-        elif key == ord('+') or key == ord('='):
-            playback_speed = min(10.0, playback_speed + 0.25)
-        elif key == ord('-') or key == ord('_'):
-            playback_speed = max(0.25, playback_speed - 0.25)
     
     cap.release()
     cv2.destroyAllWindows()

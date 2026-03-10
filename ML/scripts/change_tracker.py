@@ -9,16 +9,10 @@ from typing import Optional
 import cv2
 import numpy as np
 import chess
-from scripts.logic_filter import infer_castling_rights
+from scripts.fen_converter import board_from_fen, fen_to_piece_squares
 
-BOARD_WARP_SIZE = 800
 _FILES = "abcdefgh"
 _EPS = 1e-6
-
-
-def warp_board_to_grid(image: np.ndarray, homography: np.ndarray, size: int = BOARD_WARP_SIZE) -> np.ndarray:
-    """Warp the chessboard into a canonical top-down square image."""
-    return cv2.warpPerspective(image, homography, (size, size))
 
 
 def _square_name(index: int) -> str:
@@ -51,9 +45,6 @@ class ChangeDetectionResult:
     frame_index: int
     squares: list[SquareChange]
     triggered: list[SquareChange]
-
-    def top_squares(self, limit: int = 4) -> list[SquareChange]:
-        return self.squares[:limit]
 
     @property
     def triggered_count(self) -> int:
@@ -214,36 +205,10 @@ class ChessMoveDetector:
         return values
 
 
-def fen_to_square_set(fen: str) -> set[str]:
-    """Convert FEN board position to set of squares that have pieces.
-    
-    Args:
-        fen: FEN string like 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
-        
-    Returns:
-        Set of square names like {'a1', 'b1', 'c1', 'e7', ...}
-    """
-    squares = set()
-    ranks = fen.split()[0].split('/')  # Get board part only
-    
-    for rank_idx, rank_str in enumerate(ranks):
-        file_idx = 0
-        for char in rank_str:
-            if char.isdigit():
-                file_idx += int(char)  # Skip empty squares
-            elif char in 'pnbrqkPNBRQK':
-                square = chr(ord('a') + file_idx) + str(8 - rank_idx)
-                squares.add(square)
-                file_idx += 1
-    
-    return squares
-
-
 def _check_castling(
     previous_fen: str,
     detection: ChangeDetectionResult,
     missing_squares: set[str],
-    new_squares: set[str],
     current_piece_squares: set[str],
     expected_turn: Optional[chess.Color] = None,
 ) -> Optional[MoveResolution]:
@@ -266,6 +231,10 @@ def _check_castling(
       Black O-O  : e8 h8 vacated → g8 f8 occupied  (king e8→g8, rook h8→f8)
       Black O-O-O: e8 a8 vacated → c8 d8 occupied  (king e8→c8, rook a8→d8)
     """
+    # Castling always vacates e1 or e8 — skip entirely if neither king moved.
+    if "e1" not in missing_squares and "e8" not in missing_squares:
+        return None
+
     CASTLING_PATTERNS = [
         # (king_from, king_to, rook_from, rook_to, turn, uci)
         ("e1", "g1", "h1", "f1", chess.WHITE, "e1g1"),   # White O-O
@@ -324,7 +293,7 @@ def _check_castling(
             continue
 
         # ── LEGALITY CHECK ──
-        board = _board_from_fen(previous_fen, turn)
+        board = board_from_fen(previous_fen, turn)
         if board is None:
             continue
         move = chess.Move.from_uci(uci)
@@ -349,10 +318,7 @@ def resolve_move_from_changes(
     previous_fen: Optional[str],
     detection: Optional[ChangeDetectionResult],
     *,
-    min_triggered: int = 1,
-    skew: float = 0.0,
     current_piece_squares: Optional[set[str]] = None,
-    previous_piece_squares: Optional[set[str]] = None,
     expected_turn: Optional[chess.Color] = None,
 ) -> Optional[MoveResolution]:
     """Resolve a chess move focusing on Piece Detection (Real FEN vs Current YOLO).
@@ -372,7 +338,7 @@ def resolve_move_from_changes(
         return None
 
     # 1. Comparison: Real FEN vs Current Observation
-    real_fen_squares = fen_to_square_set(previous_fen)
+    real_fen_squares = fen_to_piece_squares(previous_fen)
     
     # Missing: Squares that had a piece in FEN, but are empty in YOLO now.
     # This is the primary signal for "From Square".
@@ -383,7 +349,6 @@ def resolve_move_from_changes(
     # Note: Captures won't show up here (dest was already occupied in FEN).
     new_squares = current_piece_squares - real_fen_squares
     
-    triggered_set = {change.square for change in detection.triggered}
     change_lookup = {change.square: change for change in detection.squares}
 
     # Optimization: If nothing is missing, no piece moved!
@@ -394,8 +359,7 @@ def resolve_move_from_changes(
 
     # --- Priority: Check for castling (two pieces move simultaneously) ---
     castling = _check_castling(
-        previous_fen, detection, missing_squares, new_squares, current_piece_squares,
-        expected_turn=expected_turn,
+        previous_fen, detection, missing_squares, current_piece_squares, expected_turn=expected_turn,
     )
     if castling is not None:
         return castling
@@ -406,7 +370,7 @@ def resolve_move_from_changes(
     # If we know whose turn it is, only consider that side's moves.
     turns_to_try = (expected_turn,) if expected_turn is not None else (chess.WHITE, chess.BLACK)
     for turn in turns_to_try:
-        board = _board_from_fen(previous_fen, turn)
+        board = board_from_fen(previous_fen, turn)
         if board is None:
             continue
         for move in board.legal_moves:
@@ -470,11 +434,3 @@ def resolve_move_from_changes(
                 )
     
     return best_resolution
-
-
-def _board_from_fen(fen: str, turn: chess.Color) -> Optional[chess.Board]:
-    try:
-        castle = infer_castling_rights(fen)
-        return chess.Board(f"{fen} {'w' if turn else 'b'} {castle} - 0 1")
-    except ValueError:
-        return None

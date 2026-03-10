@@ -4,6 +4,13 @@ import cv2
 import numpy as np
 from scripts.detectors import IMAGE_SIZE
 
+BOARD_WARP_SIZE = 800
+
+
+def warp_board_to_grid(image: np.ndarray, homography: np.ndarray, size: int = BOARD_WARP_SIZE) -> np.ndarray:
+    """Warp the chessboard into a canonical top-down square image."""
+    return cv2.warpPerspective(image, homography, (size, size))
+
 # In ML/scripts/board_mapper.py
 
 def convex_hull_order4(pts_xy):

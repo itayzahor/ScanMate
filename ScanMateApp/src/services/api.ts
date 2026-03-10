@@ -69,7 +69,7 @@ export const uploadBoardPhoto = async (filePath: string): Promise<string> => {
     name: 'scan.jpg',
   } as unknown as Blob);
 
-  const endpoint = `${API_BASE_URL}/recognize_board/`;
+  const endpoint = `${API_BASE_URL}/recognize_position/`;
   console.log('[uploadBoardPhoto] POST ->', endpoint);
 
   let response: Response;

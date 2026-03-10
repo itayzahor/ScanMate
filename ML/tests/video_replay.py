@@ -35,13 +35,13 @@ from scripts.board_orientation import (
     orient_board_state_for_white,
 )
 from scripts.piece_mapping import map_pieces_to_board
-from scripts.fen_converter import convert_board_to_fen
+from scripts.fen_converter import convert_board_to_fen, board_from_fen
 from scripts.gatekeeper import GatekeeperResult, validate_frame
-from scripts.logic_filter import LogicFilterDecision, apply_logic_filter, infer_castling_rights
+from scripts.logic_filter import LogicFilterDecision, apply_logic_filter
 from scripts.session_state import DEFAULT_STARTING_FEN, SessionState
+from scripts.board_mapper import warp_board_to_grid
 from scripts.change_tracker import (
     ChangeDetectionResult,
-    warp_board_to_grid,
     resolve_move_from_changes,
 )
 
@@ -84,23 +84,17 @@ class PipelineCandidate:
     triggered_squares: Optional[list[dict[str, float | str]]] = None
     corners: Optional[np.ndarray] = None
     img_resized: Optional[np.ndarray] = None
+    warped_board: Optional[np.ndarray] = None
+    diff_delta: Optional[np.ndarray] = None
 
 
 FILES = "abcdefgh"
 
 
-def _board_from_fen_turn(fen: str, turn: chess.Color) -> Optional[chess.Board]:
-    try:
-        castle = infer_castling_rights(fen)
-        return chess.Board(f"{fen} {'w' if turn else 'b'} {castle} - 0 1")
-    except ValueError:
-        return None
-
-
 def _san_from_move(previous_fen: Optional[str], move: chess.Move, turn: chess.Color) -> Optional[str]:
     if not previous_fen:
         return None
-    board = _board_from_fen_turn(previous_fen, turn)
+    board = board_from_fen(previous_fen, turn)
     if board is None:
         return None
     try:
@@ -117,7 +111,7 @@ def _san_from_uci(previous_fen: Optional[str], move_uci: Optional[str]) -> Optio
     except ValueError:
         return None
     for turn in (chess.WHITE, chess.BLACK):
-        board = _board_from_fen_turn(previous_fen, turn)
+        board = board_from_fen(previous_fen, turn)
         if board is None or move not in board.legal_moves:
             continue
         try:
@@ -395,6 +389,8 @@ def run_pipeline_on_frame(
     
     diff_result: Optional[ChangeDetectionResult] = None
     previous_fen = session.get_last_fen() if session else None
+    warped_board: Optional[np.ndarray] = None
+    diff_delta: Optional[np.ndarray] = None
     
     # Extract current piece squares from board_state_oriented
     current_piece_squares = set()
@@ -409,23 +405,13 @@ def run_pipeline_on_frame(
         # Match the debug server: warp once with the same inputs/size and no extra rotation
         warped_board = warp_board_to_grid(img_resized, homography, size=IMAGE_SIZE)
         diff_result = session.detect_square_changes(warped_board)
+        diff_delta = session.last_delta()
 
     if previous_fen and diff_result:
-        previous_piece_squares = session.get_previous_piece_squares() if session else None
-        
-        # Fallback: Derive squares from FEN if session tracking missed them
-        # This ensures the strict piece filter always has data to work with
-        if not previous_piece_squares and previous_fen:
-            previous_piece_squares = set(fen_to_board_map(previous_fen).keys())
-            if session:
-                session.set_piece_squares(previous_piece_squares)
-
         move_resolution = resolve_move_from_changes(
             previous_fen, 
             diff_result, 
-            skew=skew,
             current_piece_squares=current_piece_squares,
-            previous_piece_squares=previous_piece_squares
         )
         if move_resolution:
             # Update piece squares for next frame
@@ -443,6 +429,8 @@ def run_pipeline_on_frame(
                 triggered_squares=summarize_triggered_squares(diff_result),
                 corners=corners,
                 img_resized=img_resized,
+                warped_board=warped_board,
+                diff_delta=diff_delta,
             )
         # Removed auto-reset - let statistics adapt naturally
         # if diff_result.ready and diff_result.triggered_count >= 12 and session:
@@ -501,6 +489,8 @@ def run_pipeline_on_frame(
         triggered_squares=summarize_triggered_squares(diff_result),
         corners=corners,
         img_resized=img_resized,
+        warped_board=warped_board,
+        diff_delta=diff_delta,
     )
 
 
@@ -1144,7 +1134,8 @@ def main() -> None:
                     and diff_info is not None
                     and diff_info.ready
                 ):
-                    warped_dbg, delta_dbg = session.get_last_diff_debug()
+                    warped_dbg = candidate.warped_board
+                    delta_dbg = candidate.diff_delta
                     if warped_dbg is not None or delta_dbg is not None:
                         save_diff_debug_images(frame_index, warped_dbg, delta_dbg, diff_debug_dir)
                         

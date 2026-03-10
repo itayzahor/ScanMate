@@ -6,38 +6,7 @@ from typing import Optional
 
 import chess
 
-
-def infer_castling_rights(piece_fen: str) -> str:
-    """Infer castling rights using only piece placement (king and rooks on home squares)."""
-    board_fen = piece_fen.split()[0].strip()
-    rows = board_fen.split("/")
-    if len(rows) != 8:
-        return "-"
-
-    def piece_at(file_idx: int, rank_row: int) -> str | None:
-        file_ptr = 0
-        for ch in rows[rank_row]:
-            if ch.isdigit():
-                file_ptr += int(ch)
-                continue
-            if file_ptr == file_idx:
-                return ch
-            file_ptr += 1
-        return None
-
-    rights: list[str] = []
-    if piece_at(4, 7) == "K":
-        if piece_at(7, 7) == "R":
-            rights.append("K")
-        if piece_at(0, 7) == "R":
-            rights.append("Q")
-    if piece_at(4, 0) == "k":
-        if piece_at(7, 0) == "r":
-            rights.append("k")
-        if piece_at(0, 0) == "r":
-            rights.append("q")
-
-    return "".join(rights) or "-"
+from scripts.fen_converter import infer_castling_rights, board_from_fen
 
 
 @dataclass(frozen=True)
@@ -60,17 +29,9 @@ def _normalize_piece_fen(piece_fen: str) -> tuple[str, bool]:
     return board.board_fen(), True
 
 
-def _board_from_fen(fen: str, turn: chess.Color) -> Optional[chess.Board]:
-    try:
-        castle = infer_castling_rights(fen)
-        return chess.Board(f"{fen} {'w' if turn else 'b'} {castle} - 0 1")
-    except ValueError:
-        return None
-
-
 def _match_legal_transition(previous_fen: str, candidate_fen: str) -> Optional[chess.Move]:
     for turn in (chess.WHITE, chess.BLACK):
-        board = _board_from_fen(previous_fen, turn)
+        board = board_from_fen(previous_fen, turn)
         if board is None:
             continue
         for move in board.legal_moves:
