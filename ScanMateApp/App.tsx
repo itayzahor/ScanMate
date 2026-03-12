@@ -23,7 +23,7 @@ export type RootStackParamList = {
   ScanGame: undefined;
   Result: { photoPath: string }; // Result screen takes a photoPath parameter
   Analysis: { fen: string }; // Analysis screen shows the resulting FEN
-  GameReview: { snapshots: GameSnapshot[] };
+  GameReview: { snapshots: GameSnapshot[]; moves?: string[] };
 };
 
 // This tells the navigator to use that "map"

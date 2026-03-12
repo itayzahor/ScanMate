@@ -20,6 +20,13 @@ buildscript {
 
 apply plugin: "com.facebook.react.rootproject"
 
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 subprojects { project ->
     project.configurations.all { config ->
         config.resolutionStrategy.eachDependency { details ->

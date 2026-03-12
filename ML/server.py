@@ -24,6 +24,10 @@ from threading import Lock
 from typing import Optional, Union
 from uuid import uuid4
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 import cv2
 import numpy as np
 import uvicorn
@@ -37,7 +41,7 @@ from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CL
 from scripts.board_orientation import get_perspective_transform, orient_board_state_for_white
 from scripts.piece_mapping import map_pieces_to_board
 from scripts.fen_converter import convert_board_to_fen
-from scripts.gatekeeper import validate_frame
+from scripts.gatekeeper import validate_frame, HAND_DETECTED
 from scripts.board_mapper import warp_board_to_grid
 from scripts.change_tracker import resolve_move_from_changes
 from scripts.session_state import DEFAULT_STARTING_FEN, SessionState
@@ -189,6 +193,7 @@ class _GameSession:
     # when 0 only the gatekeeper runs (cheap).  A new hand bumps it up.
     hand_budget: int = _HAND_BUDGET_INIT
     hand_was_present: bool = False  # tracks whether the *previous* frame had a hand
+    mode: str = "live"  # "live" or "video"
 
 
 # Thread-safe registry of active games.
@@ -240,25 +245,40 @@ def _process_frame(game: _GameSession, image_bytes: bytes) -> dict:
     gk = validate_frame(img_resized)
     hand_now = gk.hand_count > 0
 
-    # Update hand budget.
-    if hand_now and not game.hand_was_present:
-        # New hand appeared → boost budget for the frames after it leaves.
-        game.hand_budget = max(game.hand_budget, _HAND_BUDGET_BOOST)
-    game.hand_was_present = hand_now
+    # In video mode: ignore hand-related rejection (hands are normal),
+    # only reject truly blurry frames.
+    is_video = game.mode == "video"
+
+    # Update hand budget (live mode only).
+    if not is_video:
+        if hand_now and not game.hand_was_present:
+            game.hand_budget = max(game.hand_budget, _HAND_BUDGET_BOOST)
+        game.hand_was_present = hand_now
 
     if not gk.is_valid:
-        return {"status": "rejected", "fen": game.current_fen, "move_number": len(game.moves)}
+        # In video mode, only reject if blurry (not just hand)
+        if is_video:
+            only_hand = gk.issues == [HAND_DETECTED]
+            if only_hand:
+                pass  # allow through
+            else:
+                print(f"[Frame {game.frame_count}] rejected: {gk.issues} blur={gk.blur_variance:.1f}")
+                return {"status": "rejected", "fen": game.current_fen, "move_number": len(game.moves)}
+        else:
+            print(f"[Frame {game.frame_count}] rejected: {gk.issues} blur={gk.blur_variance:.1f} hands={gk.hand_count}")
+            return {"status": "rejected", "fen": game.current_fen, "move_number": len(game.moves)}
 
-    # If budget is exhausted, skip the expensive pipeline.
-    if game.hand_budget <= 0:
+    # If budget is exhausted, skip the expensive pipeline (live mode only).
+    if not is_video and game.hand_budget <= 0:
         return {"status": "skipped", "fen": game.current_fen, "move_number": len(game.moves)}
 
-    # Spend one unit of budget for this full-pipeline frame.
-    game.hand_budget -= 1
+    if not is_video:
+        game.hand_budget -= 1
 
     # Corner detection
     corners = get_board_corners(img_resized)
     if corners is None or len(corners) != 4:
+        print(f"[Frame {game.frame_count}] no board corners detected")
         return {"status": "no_board", "fen": game.current_fen, "move_number": len(game.moves)}
 
     # Perspective transform + warp
@@ -269,6 +289,8 @@ def _process_frame(game: _GameSession, image_bytes: bytes) -> dict:
     piece_boxes = get_piece_predictions(img_resized)
     board_state = map_pieces_to_board(piece_boxes, PIECE_CLASS_NAMES, h_matrix)
     board_oriented = orient_board_state_for_white(board_state)
+
+    print(f"[Frame {game.frame_count}] corners=OK pieces={len(piece_boxes)} moves={game.moves}")
 
     # Current piece squares from raw YOLO (before smoothing)
     current_piece_squares: set[str] = set()
@@ -282,6 +304,13 @@ def _process_frame(game: _GameSession, image_bytes: bytes) -> dict:
     # Diff-based change detection
     change = session.detect_square_changes(warped)
     previous_fen = session.get_last_fen()
+
+    if change and change.triggered_count > 0:
+        top3 = change.triggered[:3]
+        top3_str = ", ".join(f"{t.square}={t.magnitude:.1f}" for t in top3)
+        print(f"[Frame {game.frame_count}] change.ready={change.ready} triggered={change.triggered_count} [{top3_str}] pending={game.pending_uci}")
+    else:
+        print(f"[Frame {game.frame_count}] change.ready={change.ready if change else None} triggered={change.triggered_count if change else None} pending={game.pending_uci}")
 
     move_san: Optional[str] = None
 
@@ -373,6 +402,9 @@ class GameStartRequest(BaseModel):
     starting_fen: Optional[str] = Field(
         None, description="Custom starting position (board-only or full FEN). Defaults to standard."
     )
+    mode: Optional[str] = Field(
+        "live", description="'live' for camera stream, 'video' for uploaded video."
+    )
 
 
 class GameStartResponse(BaseModel):
@@ -415,7 +447,8 @@ async def start_game(payload: GameStartRequest):
     game_id = uuid4().hex[:12]
 
     session = SessionState(starting_fen=starting_fen)
-    game = _GameSession(game_id=game_id, session=session, current_fen=starting_fen)
+    game = _GameSession(game_id=game_id, session=session, current_fen=starting_fen,
+                        mode=payload.mode or "live")
 
     with _games_lock:
         _games[game_id] = game
@@ -468,6 +501,11 @@ async def end_game(game_id: str):
         game = _games.pop(game_id, None)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+
+    # Auto-confirm any pending move so the last detected move isn't lost.
+    if game.pending_san:
+        game.moves.append(game.pending_san)
+        print(f"[endGame] Auto-confirmed pending move: {game.pending_san}")
 
     return GameEndResponse(
         status="completed",
@@ -593,4 +631,4 @@ async def analyze_position(request: AnalysisRequest):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

@@ -77,10 +77,13 @@ class _SquareStats:
         return self.m2 / (self.count - 1)
 
     def score(self, value: float) -> float:
-        var = self.variance()
-        if var <= _EPS:
+        if self.count < 2:
             return 0.0
-        return (value - self.mean) / math.sqrt(var)
+        std = math.sqrt(max(self.variance(), 0.0))
+        # Floor of 1.0 pixel ensures meaningful scores even when running
+        # variance is near-zero (e.g. first change after many static frames).
+        std = max(std, 1.0)
+        return (value - self.mean) / std
 
     def delta(self, value: float) -> float:
         if self.count == 0:

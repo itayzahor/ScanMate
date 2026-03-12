@@ -2,7 +2,7 @@ import {Platform} from 'react-native';
 
 // Set this to your laptop/desktop LAN IP when testing on a physical device.
 // Leave it as an empty string when using an Android emulator (which can hit 10.0.2.2).
-const LAN_HOST = '10.0.33.10';
+const LAN_HOST = '';
 const LAN_BASE_URL = LAN_HOST ? `http://${LAN_HOST}:8000` : null;
 
 const DEFAULT_BASE_URL = Platform.select({
@@ -108,6 +108,118 @@ export const uploadBoardPhoto = async (filePath: string): Promise<string> => {
   }
 
   return json.fen;
+};
+
+// --- Game Session Types ---
+
+export type GameStartResponse = {
+  status: string;
+  game_id: string;
+  starting_fen: string;
+};
+
+export type GameFrameResponse = {
+  status: string;
+  fen: string;
+  move_number: number;
+  move?: string;
+  pending?: string;
+};
+
+export type GameEndResponse = {
+  status: string;
+  game_id: string;
+  moves: string[];
+  move_count: number;
+  final_fen: string;
+};
+
+// --- Game Session Functions ---
+
+export const startGame = async (startingFen?: string, mode?: 'live' | 'video'): Promise<GameStartResponse> => {
+  const endpoint = `${API_BASE_URL}/recognize_game/`;
+  console.log('[startGame] POST ->', endpoint);
+
+  const payload: Record<string, string | undefined> = {};
+  if (startingFen) {
+    payload.starting_fen = startingFen;
+  }
+  if (mode) {
+    payload.mode = mode;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
+  }
+  return json as GameStartResponse;
+};
+
+export const sendGameFrame = async (
+  gameId: string,
+  filePath: string,
+): Promise<GameFrameResponse> => {
+  const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+  const formData = new FormData();
+  formData.append('file', {
+    uri: fileUri,
+    type: 'image/jpeg',
+    name: 'frame.jpg',
+  } as unknown as Blob);
+
+  const endpoint = `${API_BASE_URL}/recognize_game/${encodeURIComponent(gameId)}/frame`;
+  console.log('[sendGameFrame] POST ->', endpoint);
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    body: formData,
+    headers: {Accept: 'application/json'},
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
+  }
+  console.log('[sendGameFrame] response:', JSON.stringify(json));
+  return json as GameFrameResponse;
+};
+
+export const endGame = async (gameId: string): Promise<GameEndResponse> => {
+  const endpoint = `${API_BASE_URL}/recognize_game/${encodeURIComponent(gameId)}/end`;
+  console.log('[endGame] POST ->', endpoint);
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {Accept: 'application/json'},
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
+  }
+  console.log('[endGame] response:', JSON.stringify(json));
+  return json as GameEndResponse;
+};
+
+export const discardGame = async (gameId: string): Promise<void> => {
+  const endpoint = `${API_BASE_URL}/recognize_game/${encodeURIComponent(gameId)}/`;
+  console.log('[discardGame] DELETE ->', endpoint);
+
+  const response = await fetch(endpoint, {
+    method: 'DELETE',
+    headers: {Accept: 'application/json'},
+  });
+
+  if (!response.ok) {
+    const json = await response.json().catch(() => null);
+    throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
+  }
 };
 
 export const analyzePosition = async (

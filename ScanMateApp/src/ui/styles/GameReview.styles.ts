@@ -8,7 +8,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   boardWrapper: {
     alignSelf: 'center',
@@ -16,62 +16,82 @@ export const styles = StyleSheet.create({
     borderColor: colors.secondary,
     borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 20,
+    marginBottom: 12,
   },
-  timelineHeader: {
+
+  /* Navigation row */
+  navRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
   },
-  timelineTitle: {
-    color: colors.textLight,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  timelineCount: {
-    color: '#b5b5b5',
-  },
-  timelineList: {
-    paddingVertical: 12,
-  },
-  timelineItem: {
+  navButton: {
+    width: 40,
+    height: 36,
+    borderRadius: 6,
     backgroundColor: '#1f1f1f',
-    borderRadius: 8,
-    padding: 12,
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'center',
   },
-  timelineItemActive: {
-    borderWidth: 1,
-    borderColor: colors.secondary,
+  navButtonDisabled: {
+    opacity: 0.3,
   },
-  timelineIndex: {
-    width: 30,
-    color: colors.textLight,
-    fontWeight: '700',
-  },
-  timelineTextGroup: {
-    flex: 1,
-  },
-  timelineLabel: {
+  navButtonText: {
     color: colors.textLight,
     fontSize: 16,
+    fontWeight: '700',
   },
-  timelineLabelActive: {
-    color: colors.secondary,
+  navLabel: {
+    color: '#b5b5b5',
+    fontSize: 14,
+    minWidth: 90,
+    textAlign: 'center',
   },
-  timelineFen: {
-    color: '#9c9c9c',
-    fontSize: 12,
+
+  /* Move list */
+  moveListScroll: {
+    flex: 1,
+    marginBottom: 8,
   },
-  timelineTime: {
-    color: '#9c9c9c',
-    fontSize: 12,
-    marginLeft: 8,
+  moveListContent: {
+    paddingBottom: 8,
   },
+  moveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  moveNumber: {
+    width: 32,
+    color: '#777',
+    fontSize: 14,
+    textAlign: 'right',
+    marginRight: 6,
+  },
+  moveCell: {
+    flex: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  moveCellActive: {
+    backgroundColor: colors.secondary,
+  },
+  moveSan: {
+    color: colors.textLight,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  moveSanActive: {
+    color: colors.backgroundDark,
+    fontWeight: '700',
+  },
+
+  /* Analysis */
   analysisSection: {
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   analyzeButton: {
     backgroundColor: colors.primary,
