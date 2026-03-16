@@ -139,6 +139,7 @@ export type GameEndResponse = {
 export const startGame = async (startingFen?: string, mode?: 'live' | 'video'): Promise<GameStartResponse> => {
   const endpoint = `${API_BASE_URL}/recognize_game/`;
   console.log('[startGame] POST ->', endpoint);
+  const t0 = Date.now();
 
   const payload: Record<string, string | undefined> = {};
   if (startingFen) {
@@ -158,6 +159,7 @@ export const startGame = async (startingFen?: string, mode?: 'live' | 'video'): 
   if (!response.ok) {
     throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
   }
+  console.log('[startGame] RTT(ms)=', Date.now() - t0);
   return json as GameStartResponse;
 };
 
@@ -165,7 +167,9 @@ export const sendGameFrame = async (
   gameId: string,
   filePath: string,
 ): Promise<GameFrameResponse> => {
-  const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+  const fileUri = filePath.startsWith('file://') || filePath.startsWith('content://')
+    ? filePath
+    : `file://${filePath}`;
   const formData = new FormData();
   formData.append('file', {
     uri: fileUri,
@@ -175,6 +179,7 @@ export const sendGameFrame = async (
 
   const endpoint = `${API_BASE_URL}/recognize_game/${encodeURIComponent(gameId)}/frame`;
   console.log('[sendGameFrame] POST ->', endpoint);
+  const t0 = Date.now();
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -186,6 +191,7 @@ export const sendGameFrame = async (
   if (!response.ok) {
     throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
   }
+  console.log('[sendGameFrame] RTT(ms)=', Date.now() - t0);
   console.log('[sendGameFrame] response:', JSON.stringify(json));
   return json as GameFrameResponse;
 };
@@ -193,6 +199,7 @@ export const sendGameFrame = async (
 export const endGame = async (gameId: string): Promise<GameEndResponse> => {
   const endpoint = `${API_BASE_URL}/recognize_game/${encodeURIComponent(gameId)}/end`;
   console.log('[endGame] POST ->', endpoint);
+  const t0 = Date.now();
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -203,6 +210,7 @@ export const endGame = async (gameId: string): Promise<GameEndResponse> => {
   if (!response.ok) {
     throw new Error(extractApiMessage(json) ?? `Server responded with status ${response.status}`);
   }
+  console.log('[endGame] RTT(ms)=', Date.now() - t0);
   console.log('[endGame] response:', JSON.stringify(json));
   return json as GameEndResponse;
 };

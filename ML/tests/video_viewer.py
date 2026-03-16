@@ -10,13 +10,20 @@ Controls:
 - SPACE: Pause/Resume
 - Q or ESC: Quit
 - S: Save current frame as debug image
+
+terminal:
+python tests/video_viewer.py --video data/chessgame2.mp4 --frame-step 12
 """
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 from typing import Optional
+
+# Ensure the ML root is on sys.path so `scripts.*` imports resolve
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cv2
 import numpy as np

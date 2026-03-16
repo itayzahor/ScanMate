@@ -4,6 +4,36 @@ import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../App';
 import {STARTING_FEN} from '../../shared/utils/fen';
+import {Chess} from 'chess.js';
+import type {GameSnapshot} from '../../shared/types/game';
+
+// Bobby Fischer vs Donald Byrne, 1956 — "Game of the Century"
+const FISCHER_GAME_SAN = [
+  'Nf3','Nf6','c4','g6','Nc3','Bg7','d4','O-O','Bf4','d5',
+  'Qb3','dxc4','Qxc4','c6','e4','Nbd7','Rd1','Nb6','Qc5','Bg4',
+  'Bg5','Na4','Qa3','Nxc3','bxc3','Nxe4','Bxe7','Qb6','Bc4','Nxc3',
+  'Bc5','Rfe8+','Kf1','Be6','Bxb6','Bxc4+','Kg1','Ne2+','Kf1','Nxd4+',
+  'Kg1','Ne2+','Kf1','Nc3+','Kg1','axb6','Qb4','Ra4','Qxb6','Nxd1',
+  'h3','Rxa2','Kh2','Nxf2','Re1','Rxe1','Qd8+','Bf8','Nxe1','Bd5',
+  'Nf3','Ne4','Qb8','b5','h4','h5','Ne5','Kg7','Kg1','Bc5+',
+  'Kf1','Ng3+','Ke1','Bb4+','Kd1','Bb3+','Kc1','Ne2+','Kb1','Nc3+',
+  'Kc1','Rc2#',
+];
+
+const sanMovesToSnapshots = (sanMoves: string[]): { snapshots: GameSnapshot[]; moves: string[] } => {
+  const chess = new Chess();
+  const snapshots: GameSnapshot[] = [{ fen: chess.fen(), timestamp: 0 }];
+  const validMoves: string[] = [];
+
+  for (const san of sanMoves) {
+    const result = chess.move(san);
+    if (!result) { break; }
+    validMoves.push(result.san);
+    snapshots.push({ fen: chess.fen(), timestamp: snapshots.length });
+  }
+
+  return { snapshots, moves: validMoves };
+};
 
 // This component receives a 'navigation' prop from the navigator
 // Define the prop types for this screen
@@ -22,6 +52,11 @@ export const Main = ({navigation}: Props) => {
 
   const onRecordGamePress = () => {
     navigation.navigate('ScanGame');
+  };
+
+  const onFamousGamePress = () => {
+    const { snapshots, moves } = sanMovesToSnapshots(FISCHER_GAME_SAN);
+    navigation.navigate('GameReview', { snapshots, moves });
   };
 
   return (
@@ -57,6 +92,16 @@ export const Main = ({navigation}: Props) => {
           <View style={styles.buttonTextWrapper}>
             <Text style={styles.buttonTitle}>Open Analysis</Text>
             <Text style={styles.buttonSubtitle}>Edit positions and run engine evaluations</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.secondaryButton, { marginTop: 16 }]} onPress={onFamousGamePress} activeOpacity={0.85}>
+          <View style={styles.buttonIconContainer}>
+            <Text style={styles.buttonIcon}>🏆</Text>
+          </View>
+          <View style={styles.buttonTextWrapper}>
+            <Text style={styles.buttonTitle}>Famous Game</Text>
+            <Text style={styles.buttonSubtitle}>Fischer vs Byrne 1956 — Game of the Century</Text>
           </View>
         </TouchableOpacity>
       </View>

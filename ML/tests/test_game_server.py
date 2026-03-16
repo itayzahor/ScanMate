@@ -112,6 +112,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--starting-fen", type=str, default=None, help="Custom starting FEN")
     p.add_argument("--frame-step", type=int, default=25, help="Send every Nth frame (default 25 ≈ 1 FPS)")
     p.add_argument("--start-frame", type=int, default=0)
+    p.add_argument("--dump-sent-dir", type=Path, default=None,
+                   help="Optional folder to save the exact JPEG bytes sent to /frame")
     p.add_argument("--no-display", action="store_true", help="Headless mode — print only, no OpenCV window")
     return p.parse_args()
 
@@ -119,6 +121,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     base = args.server.rstrip("/")
+
+    if args.dump_sent_dir is not None:
+        args.dump_sent_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.video.exists():
         print(f"Video not found: {args.video}")
@@ -174,6 +179,10 @@ def main() -> None:
             ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
             if not ok:
                 continue
+
+            if args.dump_sent_dir is not None:
+                dump_path = args.dump_sent_dir / f"frame_{frames_sent + 1:05d}_upload.jpg"
+                dump_path.write_bytes(buf.tobytes())
 
             t0 = time.perf_counter()
             try:

@@ -41,7 +41,7 @@ from scripts.detectors import get_board_corners, get_piece_predictions, PIECE_CL
 from scripts.board_orientation import get_perspective_transform, orient_board_state_for_white
 from scripts.piece_mapping import map_pieces_to_board
 from scripts.fen_converter import convert_board_to_fen
-from scripts.gatekeeper import validate_frame, HAND_DETECTED
+from scripts.gatekeeper import validate_frame, HAND_DETECTED, DEFAULT_BLUR_THRESHOLD
 from scripts.board_mapper import warp_board_to_grid
 from scripts.change_tracker import resolve_move_from_changes
 from scripts.session_state import DEFAULT_STARTING_FEN, SessionState
@@ -173,6 +173,17 @@ _HAND_BUDGET_INIT = 5
 # How much budget a *new* hand appearance adds.
 _HAND_BUDGET_BOOST = 2
 
+_DUMP_GAME_FRAMES = os.getenv("DUMP_GAME_FRAMES", "0").lower() in {"1", "true", "yes", "on"}
+_DUMP_GAME_FRAMES_DIR = Path(
+    os.getenv(
+        "DUMP_GAME_FRAMES_DIR",
+        str(Path(__file__).resolve().parent / "runs" / "incoming_frames"),
+    )
+)
+if _DUMP_GAME_FRAMES:
+    _DUMP_GAME_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Game frame dumping enabled: %s", _DUMP_GAME_FRAMES_DIR)
+
 
 @dataclass
 class _GameSession:
@@ -226,6 +237,38 @@ def _compute_san(previous_fen: str, move: chess.Move, turn: chess.Color) -> str:
         return move.uci()
 
 
+def _dump_received_frame(game: _GameSession, image_bytes: bytes) -> None:
+    """Persist incoming frame bytes for visual debugging/comparison."""
+    if not _DUMP_GAME_FRAMES:
+        return
+
+    frame_index = game.frame_count + 1
+    game_dir = _DUMP_GAME_FRAMES_DIR / game.game_id
+    game_dir.mkdir(parents=True, exist_ok=True)
+
+    upload_path = game_dir / f"frame_{frame_index:05d}_upload.jpg"
+    upload_path.write_bytes(image_bytes)
+
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        (game_dir / f"frame_{frame_index:05d}_meta.txt").write_text(
+            f"decode=failed\nbytes={len(image_bytes)}\n",
+            encoding="utf-8",
+        )
+        return
+
+    h, w = img.shape[:2]
+    model_input = cv2.resize(img, (IMAGE_SIZE, IMAGE_SIZE))
+    model_path = game_dir / f"frame_{frame_index:05d}_model_{IMAGE_SIZE}x{IMAGE_SIZE}.jpg"
+    cv2.imwrite(str(model_path), model_input, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+
+    (game_dir / f"frame_{frame_index:05d}_meta.txt").write_text(
+        f"decode=ok\nwidth={w}\nheight={h}\nbytes={len(image_bytes)}\n",
+        encoding="utf-8",
+    )
+
+
 def _process_frame(game: _GameSession, image_bytes: bytes) -> dict:
     """Run the full detection pipeline on one frame (mirrors video_viewer logic).
 
@@ -242,12 +285,12 @@ def _process_frame(game: _GameSession, image_bytes: bytes) -> dict:
     game.frame_count += 1
 
     # Gatekeeper — always runs (cheap relative to YOLO).
-    gk = validate_frame(img_resized)
-    hand_now = gk.hand_count > 0
-
-    # In video mode: ignore hand-related rejection (hands are normal),
-    # only reject truly blurry frames.
+    # Video / replay frames are pre-compressed JPEGs with inherently lower
+    # Laplacian variance, so use a relaxed blur threshold.
     is_video = game.mode == "video"
+    blur_th = 80.0 if is_video else DEFAULT_BLUR_THRESHOLD
+    gk = validate_frame(img_resized, blur_threshold=blur_th)
+    hand_now = gk.hand_count > 0
 
     # Update hand budget (live mode only).
     if not is_video:
@@ -453,6 +496,15 @@ async def start_game(payload: GameStartRequest):
     with _games_lock:
         _games[game_id] = game
 
+    if _DUMP_GAME_FRAMES:
+        game_dir = _DUMP_GAME_FRAMES_DIR / game_id
+        game_dir.mkdir(parents=True, exist_ok=True)
+        (game_dir / "session_meta.txt").write_text(
+            f"game_id={game_id}\nmode={game.mode}\nstarting_fen={starting_fen}\n",
+            encoding="utf-8",
+        )
+        logger.info("Created game frame dump dir: %s", game_dir)
+
     return GameStartResponse(status="created", game_id=game_id, starting_fen=starting_fen)
 
 
@@ -468,6 +520,7 @@ async def submit_frame(game_id: str, file: UploadFile = File(...)):
 
     try:
         with game.lock:
+            _dump_received_frame(game, image_bytes)
             result = _process_frame(game, image_bytes)
     except Exception:
         logging.exception("Error processing frame %d for game %s", game.frame_count, game_id)

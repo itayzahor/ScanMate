@@ -13,8 +13,6 @@ import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-ca
 import { useIsFocused } from '@react-navigation/native';
 import ImageEditor from '@react-native-community/image-editor';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { launchImageLibrary } from 'react-native-image-picker';
-import { createThumbnail } from 'react-native-create-thumbnail';
 import RNFS from 'react-native-fs';
 import { Chess } from 'chess.js';
 
@@ -28,7 +26,8 @@ import { STARTING_FEN, normalizeFen } from '../../shared/utils/fen';
 
 const BOARD_TOP_GAP = 24;
 const CAPTURE_INTERVAL_MS = 1000;
-const FRAME_STEP_MS = 2000;
+const REPLAY_FRAME_DELAY_MS = 120;
+const REPLAY_FRAMES_DIR = `${RNFS.DocumentDirectoryPath}/replay_frames`;
 const RECORD_TIPS = [
   'Mount the phone so the board stays centered',
   'Keep hands outside the green frame between moves',
@@ -228,74 +227,87 @@ export const ScanGame = ({ navigation }: ScanGameProps) => {
     }
   }, [captureState, captureFrame, finishGame, setCaptureStateSafe]);
 
-  // --- Video Upload ---
+  // --- Frame Replay (debug alternative to live camera) ---
 
-  const handleLoadVideo = useCallback(async () => {
+  const handleReplayFrames = useCallback(async () => {
     if (captureState !== 'idle') {
       return;
     }
 
-    const pickerResult = await launchImageLibrary({ mediaType: 'video', selectionLimit: 1 });
-    const asset = pickerResult.assets?.[0];
-    if (!asset?.uri || !asset.duration) {
+    // Read all JPEGs from the fixed replay folder, sorted by name.
+    let files: string[];
+    try {
+      const entries = await RNFS.readDir(REPLAY_FRAMES_DIR);
+      files = entries
+        .filter((e) => e.isFile() && /\.jpe?g$/i.test(e.name))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((e) => e.path);
+    } catch {
+      Alert.alert(
+        'Replay folder not found',
+        `Place frame JPEGs in ${REPLAY_FRAMES_DIR} on the device and try again.`,
+      );
       return;
     }
 
-    const videoUri = asset.uri;
-    const durationMs = asset.duration * 1000;
-    const totalFrames = Math.ceil(durationMs / FRAME_STEP_MS);
-    console.log(`[ScanGame] video duration=${asset.duration}s  durationMs=${durationMs}  totalFrames=${totalFrames}`);
+    if (files.length === 0) {
+      Alert.alert('No frames', `No JPEG files found in ${REPLAY_FRAMES_DIR}`);
+      return;
+    }
+
+    console.log(`[ScanGame] Replay: ${files.length} frames from ${REPLAY_FRAMES_DIR}`);
 
     try {
       movesRef.current = [];
       setMoveCount(0);
       cancelledRef.current = false;
       reviewOnStopRef.current = false;
+
       const gameResult = await startGame(undefined, 'video');
       gameIdRef.current = gameResult.game_id;
       startingFenRef.current = gameResult.starting_fen;
+
       setCaptureStateSafe('uploading_video');
-      setVideoProgress({ current: 0, total: totalFrames });
+      setVideoProgress({ current: 0, total: files.length });
 
-      for (let i = 0; i < totalFrames; i++) {
+      for (let i = 0; i < files.length; i++) {
         if (cancelledRef.current) {
           break;
         }
 
-        const timestampMs = i * FRAME_STEP_MS;
-        const thumbnail = await createThumbnail({
-          url: videoUri,
-          timeStamp: timestampMs,
-          format: 'jpeg',
-          maxWidth: 640,
-          maxHeight: 640,
-        });
-
-        if (cancelledRef.current) {
-          break;
+        let resp;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            resp = await sendGameFrame(gameResult.game_id, files[i]);
+            break;
+          } catch (err) {
+            console.warn(`[ScanGame] Frame ${i} attempt ${attempt + 1} failed`, err);
+            if (attempt < 2) {
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+          }
         }
 
-        const resp = await sendGameFrame(gameIdRef.current!, thumbnail.path);
-        // Delete temp thumbnail to avoid filling up storage
-        RNFS.unlink(thumbnail.path).catch(() => {});
-        if (resp.move) {
+        if (resp?.move) {
           movesRef.current.push(resp.move);
           setMoveCount(movesRef.current.length);
         }
-        setVideoProgress({ current: i + 1, total: totalFrames });
+        setVideoProgress({ current: i + 1, total: files.length });
+
+        if (i + 1 < files.length) {
+          await new Promise((resolve) => setTimeout(resolve, REPLAY_FRAME_DELAY_MS));
+        }
       }
 
       if (!cancelledRef.current) {
         await finishGame(true);
       } else if (reviewOnStopRef.current) {
-        // User pressed "Stop & Review" — finalize after the in-flight frame is done
         await finishGame(true);
       }
-      // else: user pressed Cancel — cancelGame already handled cleanup
     } catch (error) {
-      console.error('[ScanGame] Video upload error', error);
+      console.error('[ScanGame] Replay frame upload error', error);
       if (!cancelledRef.current) {
-        Alert.alert('Error', error instanceof Error ? error.message : 'Video processing failed');
+        Alert.alert('Error', error instanceof Error ? error.message : 'Frame replay failed');
         await cancelGame();
       }
     }
@@ -353,7 +365,7 @@ export const ScanGame = ({ navigation }: ScanGameProps) => {
         <View style={styles.instructionBox}>
           <ScreenHeader
             title="Record Game"
-            subtitle="Phone stays over the board. We capture every few seconds."
+            subtitle="Use live record, or replay test frames through the same server flow."
             onBack={() => {
               if (isRecording || isUploading) {
                 cancelGame();
@@ -418,8 +430,8 @@ export const ScanGame = ({ navigation }: ScanGameProps) => {
             </TouchableOpacity>
           )}
           {isIdle && (
-            <TouchableOpacity style={localStyles.loadVideoButton} onPress={handleLoadVideo}>
-              <Text style={localStyles.loadVideoText}>Load Video</Text>
+            <TouchableOpacity style={localStyles.loadVideoButton} onPress={handleReplayFrames}>
+              <Text style={localStyles.loadVideoText}>Replay Frames</Text>
             </TouchableOpacity>
           )}
         </View>
